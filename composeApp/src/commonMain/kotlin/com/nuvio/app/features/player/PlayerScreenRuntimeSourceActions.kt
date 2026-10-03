@@ -189,8 +189,10 @@ internal fun PlayerScreenRuntime.switchToP2pSourceStream(stream: StreamItem) {
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
-    activeInitialPositionMs = currentPositionMs
-    activeInitialProgressFraction = null
+    // Fork: a failover after a startup failure keeps the resume point instead of position 0.
+    val failoverResume = sourceFailover.takeResume()
+    activeInitialPositionMs = failoverResume?.first ?: currentPositionMs
+    activeInitialProgressFraction = failoverResume?.second
     showSourcesPanel = false
     controlsVisible = true
     PlayerStreamsRepository.pauseSearchForPlayback()
@@ -282,8 +284,10 @@ internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
-    activeInitialPositionMs = currentPositionMs
-    activeInitialProgressFraction = null
+    // Fork: a failover after a startup failure keeps the resume point instead of position 0.
+    val failoverResume = sourceFailover.takeResume()
+    activeInitialPositionMs = failoverResume?.first ?: currentPositionMs
+    activeInitialProgressFraction = failoverResume?.second
     showSourcesPanel = false
     controlsVisible = true
     PlayerStreamsRepository.pauseSearchForPlayback()
@@ -402,6 +406,8 @@ internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
         contentType = contentType,
         settings = playerSettingsUiState,
         currentStreamBingeGroup = currentStreamBingeGroup,
+        preferredLanguages = nextEpisodeAudioLanguages(),
+        preferredAddonId = activeProviderAddonId,
         onDownloadedEpisodeSelected = { item, episode ->
             if (isCurrentRequest()) switchToDownloadedEpisode(item, episode)
         },

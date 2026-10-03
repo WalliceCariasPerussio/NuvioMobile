@@ -67,7 +67,7 @@ private const val AudioMarker = "🔊"
 private const val SubtitleMarker = "💬"
 private const val OtherTracksMarker = "🌐"
 
-internal enum class StreamQualityBucket { UHD_4K, QHD_1440, FHD_1080, HD_720, SD, OTHER }
+enum class StreamQualityBucket { UHD_4K, QHD_1440, FHD_1080, HD_720, SD, OTHER }
 
 internal data class StreamTraits(
     val audioLanguages: List<String>,
@@ -324,8 +324,9 @@ internal fun rememberStreamAudioQualityFilter(uiState: StreamsUiState): StreamAu
     var languageChoice by remember(requestToken) { mutableStateOf(ChoiceAuto) }
     var qualityChoice by remember(requestToken) { mutableStateOf(ChoiceAuto) }
 
-    val selection = remember(uiState, traitsByGroup, targets, originalLanguage, languageChoice, qualityChoice) {
-        selectStreams(uiState, traitsByGroup, targets, originalLanguage, languageChoice, qualityChoice)
+    val maxQuality = playerSettings.streamAutoPlayMaxQuality.bucket
+    val selection = remember(uiState, traitsByGroup, targets, originalLanguage, languageChoice, qualityChoice, maxQuality) {
+        selectStreams(uiState, traitsByGroup, targets, originalLanguage, languageChoice, qualityChoice, maxQuality)
     }
     return StreamAudioQualityFilter(
         languages = selection.languages,
@@ -351,6 +352,7 @@ private fun selectStreams(
     originalLanguage: String?,
     languageChoice: String,
     qualityChoice: String,
+    maxQuality: StreamQualityBucket?,
 ): StreamFilterSelection {
     val allTraits = traitsByGroup.flatten()
     val counts = languageCounts(allTraits)
@@ -399,7 +401,11 @@ private fun selectStreams(
         val count = languageTraits.count { it.quality == bucket }
         if (count > 0) StreamFilterOption(bucket.name, count) else null
     }
-    val autoQuality = qualities.firstOrNull { it.key != StreamQualityBucket.OTHER.name }?.key ?: ChoiceAll
+    // The best quality within the automatic cap, else the closest one above it.
+    val knownQualities = qualities.filter { it.key != StreamQualityBucket.OTHER.name }
+    val autoQuality = knownQualities.firstOrNull { StreamQualityBucket.valueOf(it.key).isWithin(maxQuality) }?.key
+        ?: knownQualities.lastOrNull()?.key
+        ?: ChoiceAll
     val selectedQuality = when (qualityChoice) {
         ChoiceAuto -> autoQuality
         ChoiceAll -> ChoiceAll

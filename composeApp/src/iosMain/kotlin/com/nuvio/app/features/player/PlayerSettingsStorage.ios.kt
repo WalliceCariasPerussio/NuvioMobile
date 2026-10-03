@@ -651,6 +651,13 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setObject(mode, forKey = ProfileScopedKey.of(streamAutoPlayModeKey))
     }
 
+    actual fun loadStreamAutoPlayMaxQuality(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of("stream_auto_play_max_quality"))
+
+    actual fun saveStreamAutoPlayMaxQuality(quality: String) {
+        NSUserDefaults.standardUserDefaults.setObject(quality, forKey = ProfileScopedKey.of("stream_auto_play_max_quality"))
+    }
+
     actual fun loadStreamAutoPlaySource(): String? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(streamAutoPlaySourceKey)

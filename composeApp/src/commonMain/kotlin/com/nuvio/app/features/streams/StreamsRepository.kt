@@ -251,6 +251,16 @@ object StreamsRepository {
             val debridAvailabilityJobs = mutableListOf<Job>()
             var autoSelectTriggered = false
             var timeoutElapsed = false
+            // Fork: language and quality cap for the BEST_PREFERRED_AUDIO mode. Like Netflix, the
+            // audio language last chosen for this title comes before the preferred ones.
+            val titleAudioLanguage = parentMetaId
+                ?.let { com.nuvio.app.features.player.PlayerTrackPreferenceStorage.load(it)?.audioLanguage }
+                ?.let(::streamLanguageCode)
+            val autoPlayLanguages = (
+                listOfNotNull(titleAudioLanguage) +
+                    preferredAudioTargets(playerSettings, streamContentOriginalLanguage(requestToken))
+                ).distinct()
+            val autoPlayMaxQuality = playerSettings.streamAutoPlayMaxQuality.bucket
             fun evaluateAutoPlay(bingeGroupOnly: Boolean = false): StreamAutoPlayEvaluation =
                 StreamAutoPlaySelector.evaluateAutoPlayStream(
                     streams = _uiState.value.groups.flatMap { it.streams },
@@ -265,6 +275,8 @@ object StreamsRepository {
                     bingeGroupOnly = bingeGroupOnly,
                     debridEnabled = debridSettings.canResolvePlayableLinks,
                     activeResolverProviderId = debridSettings.activeResolverProviderId,
+                    preferredLanguages = autoPlayLanguages,
+                    maxQuality = autoPlayMaxQuality,
                 )
 
             fun settleAutoPlay(evaluation: StreamAutoPlayEvaluation) {
@@ -293,6 +305,12 @@ object StreamsRepository {
                 val earlyEvaluation = when {
                     timeoutElapsed -> evaluateAutoPlay()
                     persistedBingeGroup != null -> evaluateAutoPlay(bingeGroupOnly = true)
+                    // Fork: start as soon as a source can't be beaten by the ones still loading.
+                    autoPlayMode == StreamAutoPlayMode.BEST_PREFERRED_AUDIO -> evaluateAutoPlay().takeIf { evaluation ->
+                        evaluation.stream?.let {
+                            isUnbeatableChoice(it, autoPlayLanguages.firstOrNull(), autoPlayMaxQuality)
+                        } == true
+                    }
                     else -> null
                 }
                 if (earlyEvaluation?.stream != null) {

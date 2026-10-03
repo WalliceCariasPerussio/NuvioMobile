@@ -1,5 +1,7 @@
 package com.nuvio.app.features.debrid
 
+import com.nuvio.app.features.streams.preferredAudioTargets
+import com.nuvio.app.features.streams.bucket
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.player.PlayerSettingsUiState
 import com.nuvio.app.features.streams.AddonStreamGroup
@@ -88,6 +90,8 @@ object DirectDebridStreamPreparer {
             installedAddonNames = installedAddonNames,
             selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
             selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
+            preferredLanguages = preferredAudioTargets(playerSettings, null),
+            maxQuality = playerSettings.streamAutoPlayMaxQuality.bucket,
         )
         if (autoPlaySelection?.let { it.isAddonDebridCandidate && (it.isDirectDebridStream || it.isCachedDebridTorrentStream) } == true) {
             candidates.firstOrNull { it.preparationKey() == autoPlaySelection.preparationKey() }

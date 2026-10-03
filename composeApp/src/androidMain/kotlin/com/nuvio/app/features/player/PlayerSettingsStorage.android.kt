@@ -771,6 +771,16 @@ actual object PlayerSettingsStorage {
             ?.apply()
     }
 
+    actual fun loadStreamAutoPlayMaxQuality(): String? =
+        preferences?.getString(ProfileScopedKey.of("stream_auto_play_max_quality"), null)
+
+    actual fun saveStreamAutoPlayMaxQuality(quality: String) {
+        preferences
+            ?.edit()
+            ?.putString(ProfileScopedKey.of("stream_auto_play_max_quality"), quality)
+            ?.apply()
+    }
+
     actual fun loadStreamAutoPlaySource(): String? =
         preferences?.getString(ProfileScopedKey.of(streamAutoPlaySourceKey), null)
 

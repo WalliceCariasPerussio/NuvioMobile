@@ -16,6 +16,7 @@ import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySelector
 import com.nuvio.app.features.streams.StreamAutoPlaySource
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.bucket
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -70,6 +71,10 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     onSourceNameChanged: (String?) -> Unit,
     onCountdownChanged: (Int?) -> Unit,
     onNextEpisodeCardVisibleChanged: (Boolean) -> Unit,
+    // Fork: BEST_PREFERRED_AUDIO keeps the language playing now, then the preferred ones.
+    preferredLanguages: List<String> = emptyList(),
+    // Fork: the addon playing now, so the next episode keeps the same source when it can.
+    preferredAddonId: String? = null,
 ): Job? {
     val nextVideoId = nextEpisodeInfo?.videoId ?: return null
     val nextVideo = allEpisodes.firstOrNull { video -> video.id == nextVideoId } ?: return null
@@ -130,7 +135,10 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     } else {
         settings.streamAutoPlayRegex
     }
-    val preferredBingeGroup = if (settings.streamAutoPlayPreferBingeGroup) {
+    val preferredBingeGroup = if (
+        settings.streamAutoPlayPreferBingeGroup ||
+        effectiveMode == StreamAutoPlayMode.BEST_PREFERRED_AUDIO // fork: keep the source
+    ) {
         currentStreamBingeGroup
     } else {
         null
@@ -194,6 +202,9 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
                 bingeGroupOnly = bingeGroupOnlyManualMode,
                 debridEnabled = debridSettings.canResolvePlayableLinks,
                 activeResolverProviderId = debridSettings.activeResolverProviderId,
+                preferredLanguages = preferredLanguages,
+                maxQuality = settings.streamAutoPlayMaxQuality.bucket,
+                preferredAddonId = preferredAddonId,
             )
 
         fun tryBingeGroupOnly(streams: List<StreamItem>): StreamItem? {

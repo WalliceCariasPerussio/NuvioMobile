@@ -309,6 +309,7 @@ private fun PlaybackSettingsSection(
     var showIosTargetTransferDialog by remember { mutableStateOf(false) }
     var showLibassRenderTypeDialog by remember { mutableStateOf(false) }
     var showAutoPlayModeDialog by remember { mutableStateOf(false) }
+    var showAutoPlayMaxQualityDialog by remember { mutableStateOf(false) }
     var showAutoPlaySourceDialog by remember { mutableStateOf(false) }
     var showAutoPlayAddonSelectionDialog by remember { mutableStateOf(false) }
     var showAutoPlayPluginSelectionDialog by remember { mutableStateOf(false) }
@@ -782,6 +783,13 @@ private fun PlaybackSettingsSection(
                     isTablet = isTablet,
                     onClick = { showAutoPlayModeDialog = true },
                 )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_playback_max_quality),
+                    description = stringResource(autoPlayPlayerSettings.streamAutoPlayMaxQuality.labelRes),
+                    isTablet = isTablet,
+                    onClick = { showAutoPlayMaxQualityDialog = true },
+                )
                 if (autoPlayPlayerSettings.streamAutoPlayMode == StreamAutoPlayMode.REGEX_MATCH) {
                     SettingsGroupDivider(isTablet = isTablet)
                     val notSetLabel = stringResource(Res.string.settings_playback_not_set)
@@ -1153,14 +1161,17 @@ private fun PlaybackSettingsSection(
                         onCheckedChange = PlayerSettingsRepository::setStreamAutoPlayReuseBingeGroup,
                     )
                 }
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_preload_next_episode),
-                    description = stringResource(Res.string.settings_playback_preload_next_episode_description),
-                    checked = autoPlayPlayerSettings.preloadNextEpisodeSources,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setPreloadNextEpisodeSources,
-                )
+                // Fork: the player always preloads the next episode now, so this switch is not shown.
+                if (false) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_preload_next_episode),
+                        description = stringResource(Res.string.settings_playback_preload_next_episode_description),
+                        checked = autoPlayPlayerSettings.preloadNextEpisodeSources,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setPreloadNextEpisodeSources,
+                    )
+                }
                 SettingsGroupDivider(isTablet = isTablet)
                 var showThresholdModeDialog by remember { mutableStateOf(false) }
                 SettingsNavigationRow(
@@ -1628,6 +1639,17 @@ private fun PlaybackSettingsSection(
                 showAutoPlayModeDialog = false
             },
             onDismiss = { showAutoPlayModeDialog = false },
+        )
+    }
+
+    if (showAutoPlayMaxQualityDialog) {
+        StreamAutoPlayMaxQualityDialog(
+            selected = autoPlayPlayerSettings.streamAutoPlayMaxQuality,
+            onSelect = {
+                PlayerSettingsRepository.setStreamAutoPlayMaxQuality(it)
+                showAutoPlayMaxQualityDialog = false
+            },
+            onDismiss = { showAutoPlayMaxQualityDialog = false },
         )
     }
 
@@ -2144,6 +2166,11 @@ private fun StreamAutoPlayModeDialog(
             Res.string.settings_playback_stream_selection_mode_regex,
             Res.string.settings_playback_stream_selection_mode_regex_description,
         ),
+        Triple(
+            StreamAutoPlayMode.BEST_PREFERRED_AUDIO,
+            Res.string.settings_playback_stream_selection_mode_best_audio,
+            Res.string.settings_playback_stream_selection_mode_best_audio_description,
+        ),
     )
 
     DialogSurface(
@@ -2638,7 +2665,44 @@ private val StreamAutoPlayMode.labelRes: StringResource
         StreamAutoPlayMode.MANUAL -> Res.string.settings_playback_stream_selection_mode_manual
         StreamAutoPlayMode.FIRST_STREAM -> Res.string.settings_playback_stream_selection_mode_first_stream
         StreamAutoPlayMode.REGEX_MATCH -> Res.string.settings_playback_stream_selection_mode_regex
+        StreamAutoPlayMode.BEST_PREFERRED_AUDIO -> Res.string.settings_playback_stream_selection_mode_best_audio
     }
+
+// Fork: automatic quality cap.
+private val com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.labelRes: StringResource
+    get() = when (this) {
+        com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.NO_LIMIT -> Res.string.settings_playback_max_quality_no_limit
+        com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.UHD_4K -> Res.string.settings_playback_max_quality_4k
+        com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.FHD_1080 -> Res.string.settings_playback_max_quality_1080
+        com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.HD_720 -> Res.string.settings_playback_max_quality_720
+    }
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun StreamAutoPlayMaxQualityDialog(
+    selected: com.nuvio.app.features.streams.StreamAutoPlayMaxQuality,
+    onSelect: (com.nuvio.app.features.streams.StreamAutoPlayMaxQuality) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    DialogSurface(
+        onDismissRequest = onDismiss,
+        title = stringResource(Res.string.settings_playback_max_quality),
+    ) {
+        com.nuvio.app.features.streams.StreamAutoPlayMaxQuality.entries.forEach { quality ->
+            DialogOption(
+                text = stringResource(quality.labelRes),
+                selected = quality == selected,
+                onClick = { onSelect(quality) },
+            )
+        }
+        DialogButtons {
+            DialogButton(
+                text = stringResource(Res.string.action_done),
+                onClick = onDismiss,
+            )
+        }
+    }
+}
 
 private val com.nuvio.app.features.player.skip.NextEpisodeThresholdMode.labelRes: StringResource
     get() = when (this) {

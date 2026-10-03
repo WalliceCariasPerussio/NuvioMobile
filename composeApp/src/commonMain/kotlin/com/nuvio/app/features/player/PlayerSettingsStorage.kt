@@ -83,6 +83,9 @@ internal expect object PlayerSettingsStorage {
     fun saveTunnelingEnabled(enabled: Boolean)
     fun loadStreamAutoPlayMode(): String?
     fun saveStreamAutoPlayMode(mode: String)
+    // Fork: automatic quality cap (StreamAutoPlayMaxQuality name).
+    fun loadStreamAutoPlayMaxQuality(): String?
+    fun saveStreamAutoPlayMaxQuality(quality: String)
     fun loadStreamAutoPlaySource(): String?
     fun saveStreamAutoPlaySource(source: String)
     fun loadStreamAutoPlaySelectedAddons(): Set<String>?

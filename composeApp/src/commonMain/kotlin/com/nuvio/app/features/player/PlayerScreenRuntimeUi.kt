@@ -181,6 +181,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     },
                     onSnapshot = { snapshot ->
                         if (!active.value || !updatePlaybackSnapshot(snapshot, playbackKey)) return@PlatformPlayerSurface
+                        onShortClipPlaying(snapshot) // fork
                         refreshAudioTracksIfChanged()
                         if (!snapshot.isLoading) initialLoadCompleted = true
                         if (snapshot.isEnded) {
@@ -193,6 +194,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
                             return@PlatformPlayerSurface
                         }
+                        if (message != null && tryAutoSourceFailover(message)) return@PlatformPlayerSurface // fork
                         errorMessage = message
                         if (message != null) {
                             scrubbingPositionMs = null
@@ -553,7 +555,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         activeSourceUrl = activeSourceUrl,
         activeStreamTitle = activeStreamTitle,
         onSourceFilterSelected = PlayerStreamsRepository::selectSourceFilter,
-        onSourceStreamSelected = { stream -> switchToSource(stream) },
+        onSourceStreamSelected = { stream -> markManualSourcePick(stream); switchToSource(stream) },
         onReloadSources = {
             val vid = activeVideoId
             if (vid != null) {
@@ -600,7 +602,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = episode)
         },
         onEpisodeStreamFilterSelected = PlayerStreamsRepository::selectEpisodeStreamsFilter,
-        onEpisodeStreamSelected = { stream, episode -> switchToEpisodeStream(stream, episode) },
+        onEpisodeStreamSelected = { stream, episode -> markManualSourcePick(stream); switchToEpisodeStream(stream, episode) },
         onBackToEpisodes = {
             episodeStreamsPanelState = EpisodeStreamsPanelState()
             PlayerStreamsRepository.clearEpisodeStreams()

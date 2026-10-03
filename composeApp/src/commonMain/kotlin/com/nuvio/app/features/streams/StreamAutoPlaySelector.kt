@@ -45,6 +45,10 @@ object StreamAutoPlaySelector {
         bingeGroupOnly: Boolean = false,
         debridEnabled: Boolean = true,
         activeResolverProviderId: String? = null,
+        // Fork: for BEST_PREFERRED_AUDIO (primary, then secondary language; and the quality cap).
+        preferredLanguages: List<String> = emptyList(),
+        maxQuality: StreamQualityBucket? = null,
+        preferredAddonId: String? = null,
     ): StreamItem? =
         evaluateAutoPlayStream(
             streams = streams,
@@ -59,6 +63,9 @@ object StreamAutoPlaySelector {
             bingeGroupOnly = bingeGroupOnly,
             debridEnabled = debridEnabled,
             activeResolverProviderId = activeResolverProviderId,
+            preferredLanguages = preferredLanguages,
+            maxQuality = maxQuality,
+            preferredAddonId = preferredAddonId,
         ).stream
 
     fun evaluateAutoPlayStream(
@@ -74,6 +81,9 @@ object StreamAutoPlaySelector {
         bingeGroupOnly: Boolean = false,
         debridEnabled: Boolean = true,
         activeResolverProviderId: String? = null,
+        preferredLanguages: List<String> = emptyList(),
+        maxQuality: StreamQualityBucket? = null,
+        preferredAddonId: String? = null,
     ): StreamAutoPlayEvaluation {
         if (streams.isEmpty()) return StreamAutoPlayEvaluation()
 
@@ -129,6 +139,13 @@ object StreamAutoPlaySelector {
         val matchingStreams = when (mode) {
             StreamAutoPlayMode.MANUAL -> emptyList()
             StreamAutoPlayMode.FIRST_STREAM -> candidateStreams
+            StreamAutoPlayMode.BEST_PREFERRED_AUDIO -> rankBestInPreferredLanguage(
+                streams = candidateStreams,
+                preferredLanguages = preferredLanguages,
+                maxQuality = maxQuality,
+                preferredBingeGroup = targetBingeGroup.ifEmpty { null },
+                preferredAddonId = preferredAddonId,
+            )
             StreamAutoPlayMode.REGEX_MATCH -> {
                 val pattern = regexPattern.trim()
 
