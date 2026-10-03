@@ -195,10 +195,10 @@ internal fun TabletStreamsLayout(
                             )
                         }
 
-                        ProviderFilterRow(
-                            groups = uiState.groups,
-                            selectedFilter = uiState.selectedFilter,
-                            onFilterSelected = { addonId -> StreamsRepository.selectFilter(addonId) },
+                        val audioQualityFilter = rememberStreamAudioQualityFilter(uiState)
+                        StreamAudioQualityFilterRow(
+                            filter = audioQualityFilter,
+                            isLoading = uiState.isAnyLoading,
                             onRefresh = onRefresh,
                         )
 
@@ -208,7 +208,7 @@ internal fun TabletStreamsLayout(
                         )
 
                         StreamList(
-                            uiState = uiState,
+                            uiState = audioQualityFilter.filteredUiState,
                             debridEnabled = debridEnabled,
                             appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
                             onStreamSelected = onStreamSelected,

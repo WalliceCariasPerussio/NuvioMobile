@@ -487,15 +487,15 @@ private fun MobileStreamsLayout(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                         )
                     }
-                    ProviderFilterRow(
-                        groups = uiState.groups,
-                        selectedFilter = uiState.selectedFilter,
-                        onFilterSelected = { addonId -> StreamsRepository.selectFilter(addonId) },
+                    val audioQualityFilter = rememberStreamAudioQualityFilter(uiState)
+                    StreamAudioQualityFilterRow(
+                        filter = audioQualityFilter,
+                        isLoading = uiState.isAnyLoading,
                         onRefresh = onRefresh,
                     )
 
                     StreamList(
-                        uiState = uiState,
+                        uiState = audioQualityFilter.filteredUiState,
                         debridEnabled = debridEnabled,
                         appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
                         onStreamSelected = onStreamSelected,

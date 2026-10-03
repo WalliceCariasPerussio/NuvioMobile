@@ -1,0 +1,10 @@
+<resources>
+    <string name="stream_filter_audio">Áudio</string>
+    <string name="stream_filter_quality">Qualidade</string>
+    <string name="stream_filter_all_languages">Todos</string>
+    <string name="stream_filter_all_qualities">Todas</string>
+    <string name="stream_filter_language_unknown">Não identificado</string>
+    <string name="stream_filter_language_portuguese">Português</string>
+    <string name="stream_filter_quality_other">Outras</string>
+    <string name="stream_filter_preferred_missing">Nenhuma fonte em %1$s · mostrando %2$s</string>
+</resources>

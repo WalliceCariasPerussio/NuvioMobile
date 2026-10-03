@@ -12,8 +12,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.streams.StreamAudioQualityFilterRow
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsUiState
+import com.nuvio.app.features.streams.rememberStreamAudioQualityFilter
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.compose_player_episode_code_full
@@ -81,16 +83,18 @@ fun PlayerSourcesPanel(
 
             Spacer(Modifier.height(16.dp))
 
-            PlayerProviderFilterRow(
-                streamsUiState = streamsUiState,
-                onFilterSelected = onFilterSelected,
+            // Same audio/quality chips as the streams screen, in place of the addon chips.
+            val audioQualityFilter = rememberStreamAudioQualityFilter(streamsUiState)
+            StreamAudioQualityFilterRow(
+                filter = audioQualityFilter,
+                isLoading = streamsUiState.isAnyLoading,
                 onRefresh = onReload,
             )
 
             Spacer(Modifier.height(16.dp))
 
             PlayerStreamList(
-                streamsUiState = streamsUiState,
+                streamsUiState = audioQualityFilter.filteredUiState,
                 onStreamSelected = onStreamSelected,
                 modifier = Modifier.weight(1f),
                 currentStreamUrl = currentStreamUrl,
