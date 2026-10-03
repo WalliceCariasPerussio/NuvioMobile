@@ -81,6 +81,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playbackSnapshot = PlayerPlaybackSnapshot()
         playbackSnapshotKey = null
         cancelNextEpisodeAutoPlay()
+        nextEpisodePreloadTriggered = false // fork: each episode preloads its next one
         isScrubbingTimeline = false
         scrubbingPositionMs = null
         liveGestureFeedback = null
@@ -354,6 +355,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         }
     }
 
+    RetainPlayerStreamSearches()
     DisposableEffect(Unit) {
         PlayerStreamsRepository.pauseSearchForPlayback()
         onDispose {

@@ -442,6 +442,7 @@ internal fun PlayerScreenRuntime.openSourcesPanel() {
         videoId = vid,
         season = activeSeasonNumber,
         episode = activeEpisodeNumber,
+        forceRefresh = isPlaybackFailed,
     )
     showSourcesPanel = true
     showEpisodesPanel = false

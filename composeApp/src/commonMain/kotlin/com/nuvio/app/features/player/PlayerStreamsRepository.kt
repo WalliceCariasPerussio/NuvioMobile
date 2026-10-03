@@ -22,6 +22,7 @@ import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLoadCompletion
 import com.nuvio.app.features.streams.StreamParser
+import com.nuvio.app.features.streams.StreamSearchCache
 import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.streams.runCatchingUnlessCancelled
 import com.nuvio.app.features.streams.sortedForGroupedDisplay
@@ -61,6 +62,11 @@ object PlayerStreamsRepository {
     val episodeStreamsState: StateFlow<StreamsUiState> = _episodeStreamsState.asStateFlow()
     private var episodeStreamsJob: Job? = null
     private var episodeStreamsRequestKey: String? = null
+
+    // next episode preload (fork): its own slot, so opening and closing panels does not cancel it
+    private val preloadState = MutableStateFlow(StreamsUiState())
+    private var preloadJob: Job? = null
+    private var preloadRequestKey: String? = null
 
     fun loadSources(
         type: String,
@@ -102,6 +108,29 @@ object PlayerStreamsRepository {
             jobHolder = { episodeStreamsJob },
             setJob = { episodeStreamsJob = it },
         )
+    }
+
+    /** Searches the next episode in the background; its groups land in [StreamSearchCache]. */
+    fun preloadStreams(type: String, videoId: String, season: Int?, episode: Int?) {
+        fetchStreams(
+            type = type,
+            videoId = videoId,
+            season = season,
+            episode = episode,
+            forceRefresh = false,
+            stateFlow = preloadState,
+            requestKeyHolder = { preloadRequestKey },
+            setRequestKey = { preloadRequestKey = it },
+            jobHolder = { preloadJob },
+            setJob = { preloadJob = it },
+        )
+    }
+
+    fun cancelPreload() {
+        preloadJob?.cancel()
+        preloadJob = null
+        preloadRequestKey = null
+        preloadState.value = StreamsUiState()
     }
 
     fun stopSourcesLoading() {
@@ -172,6 +201,7 @@ object PlayerStreamsRepository {
         sourceRequestKey = null
         _sourceState.value = StreamsUiState()
         clearEpisodeStreams()
+        cancelPreload()
     }
 
     private fun fetchStreams(
@@ -278,16 +308,24 @@ object PlayerStreamsRepository {
             return
         }
 
+        // Fork: reuse the groups a recent search already got; fetch only the missing ones.
+        val media = StreamSearchCache.media(type, videoId, season, episode)
+        val pluginsGrouped = pluginUiState.groupStreamsByRepository
+        if (forceRefresh) StreamSearchCache.evict(media, pluginsGrouped)
+        val cachedGroups = StreamSearchCache.finishedGroups(media, pluginsGrouped)
+        val addonsToFetch = streamAddons.filter { it.addonId !in cachedGroups }
+        val providersToFetch = pluginProviderGroups.filter { it.addonId !in cachedGroups }
+
         val installedAddonOrder = streamAddons.map { it.addonName }
         val initialGroups = StreamAutoPlaySelector.orderAddonStreams(streamAddons.map { addon ->
-            AddonStreamGroup(
+            cachedGroups[addon.addonId] ?: AddonStreamGroup(
                 addonName = addon.addonName,
                 addonId = addon.addonId,
                 streams = emptyList(),
                 isLoading = true,
             )
         } + pluginProviderGroups.map { providerGroup ->
-            AddonStreamGroup(
+            cachedGroups[providerGroup.addonId] ?: AddonStreamGroup(
                 addonName = providerGroup.addonName,
                 addonId = providerGroup.addonId,
                 streams = emptyList(),
@@ -299,16 +337,17 @@ object PlayerStreamsRepository {
             groups = initialGroups,
             activeAddonIds = initialGroups.map { it.addonId }.toSet(),
             isAnyLoading = isInitiallyLoading,
+            emptyStateReason = initialGroups.toEmptyStateReason(isInitiallyLoading),
         )
 
         val job = scope.launch {
             val installedAddonIds = streamAddons.map { it.addonId }.toSet()
             val installedAddonNames = installedAddonOrder.toSet()
-            val pluginRemainingByAddonId = pluginProviderGroups
+            val pluginRemainingByAddonId = providersToFetch
                 .associate { it.addonId to it.scrapers.size }
                 .toMutableMap()
             val pluginFirstErrorByAddonId = mutableMapOf<String, String>()
-            val totalTasks = streamAddons.size + pluginProviderGroups.sumOf { it.scrapers.size }
+            val totalTasks = addonsToFetch.size + providersToFetch.sumOf { it.scrapers.size }
             val completions = Channel<StreamLoadCompletion>(capacity = Channel.BUFFERED)
             val debridAvailabilityJobs = mutableListOf<Job>()
 
@@ -344,6 +383,7 @@ object PlayerStreamsRepository {
                         emptyStateReason = updated.toEmptyStateReason(anyLoading),
                     )
                 }
+                StreamSearchCache.save(media, pluginsGrouped, group)
             }
 
             fun publishStreamGroupAfterCacheCheck(group: AddonStreamGroup) {
@@ -377,7 +417,7 @@ object PlayerStreamsRepository {
                 debridAvailabilityJobs += availabilityJob
             }
 
-            streamAddons.forEach { addon ->
+            addonsToFetch.forEach { addon ->
                 launch {
                     val url = buildAddonResourceUrl(
                         manifestUrl = addon.manifest.transportUrl,
@@ -411,7 +451,7 @@ object PlayerStreamsRepository {
                 }
             }
 
-            pluginProviderGroups.forEach { providerGroup ->
+            providersToFetch.forEach { providerGroup ->
                 val includeScraperNameInSubtitle = false
                 providerGroup.scrapers.forEach { scraper ->
                     launch {
@@ -500,6 +540,8 @@ object PlayerStreamsRepository {
                                 emptyStateReason = updated.toEmptyStateReason(anyLoading),
                             )
                         }
+                        stateFlow.value.groups.firstOrNull { it.addonId == completion.addonId }
+                            ?.let { StreamSearchCache.save(media, pluginsGrouped, it) }
                     }
                 }
             }

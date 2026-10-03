@@ -203,6 +203,11 @@ object StreamsRepository {
             return
         }
 
+        // Fork: groups are saved as they finish, so the player's panels reuse this search.
+        val cacheMedia = StreamSearchCache.media(type, videoId, season, episode)
+        val pluginsGrouped = pluginUiState.groupStreamsByRepository
+        if (forceRefresh) StreamSearchCache.evict(cacheMedia, pluginsGrouped)
+
         // Initialise loading placeholders
         val installedAddonOrder = streamAddons.map { it.addonName }
         val initialGroups = StreamAutoPlaySelector.orderAddonStreams(streamAddons.map { addon ->
@@ -337,6 +342,7 @@ object StreamsRepository {
                         emptyStateReason = updated.toEmptyStateReason(anyLoading),
                     )
                 }
+                StreamSearchCache.save(cacheMedia, pluginsGrouped, group)
                 updateAutoPlayAfterStreamsChanged()
             }
 
@@ -550,6 +556,8 @@ object StreamsRepository {
                                 emptyStateReason = updated.toEmptyStateReason(anyLoading),
                             )
                         }
+                        _uiState.value.groups.firstOrNull { it.addonId == completion.addonId }
+                            ?.let { StreamSearchCache.save(cacheMedia, pluginsGrouped, it) }
                         updateAutoPlayAfterStreamsChanged()
                     }
 
