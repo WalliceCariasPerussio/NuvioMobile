@@ -109,6 +109,9 @@ internal fun PluginRuntimeResult.toStreamItem(
 
     return StreamItem(
         name = name ?: title,
+        // Kept when the plugin also sends a name: it carries the release details,
+        // like the "🔊" audio line the language chips read.
+        title = title.takeIf { name != null },
         description = subtitleParts.joinToString(" • ").ifBlank { null },
         url = url,
         infoHash = infoHash,
