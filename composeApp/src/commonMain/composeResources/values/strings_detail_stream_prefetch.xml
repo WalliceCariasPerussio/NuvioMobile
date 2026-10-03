@@ -1,0 +1,12 @@
+<resources>
+    <string name="detail_stream_prefetch_loading">Finding streams…</string>
+    <string name="detail_stream_prefetch_loading_progress">Finding streams… %1$d of %2$d addons</string>
+    <plurals name="detail_stream_prefetch_found">
+        <item quantity="one">%1$d stream found</item>
+        <item quantity="other">%1$d streams found</item>
+    </plurals>
+    <string name="detail_stream_prefetch_in_language">%1$d in %2$s</string>
+    <string name="detail_stream_prefetch_none_in_language">none in %1$s</string>
+    <string name="detail_stream_prefetch_none">No streams found</string>
+    <string name="detail_stream_prefetch_failed">Couldn't load streams</string>
+</resources>

@@ -1,0 +1,12 @@
+<resources>
+    <string name="detail_stream_prefetch_loading">Buscando fontes…</string>
+    <string name="detail_stream_prefetch_loading_progress">Buscando fontes… %1$d de %2$d addons</string>
+    <plurals name="detail_stream_prefetch_found">
+        <item quantity="one">%1$d fonte encontrada</item>
+        <item quantity="other">%1$d fontes encontradas</item>
+    </plurals>
+    <string name="detail_stream_prefetch_in_language">%1$d em %2$s</string>
+    <string name="detail_stream_prefetch_none_in_language">nenhuma em %1$s</string>
+    <string name="detail_stream_prefetch_none">Nenhuma fonte encontrada</string>
+    <string name="detail_stream_prefetch_failed">Não foi possível carregar as fontes</string>
+</resources>

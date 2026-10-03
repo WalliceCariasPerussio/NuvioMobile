@@ -8,10 +8,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -45,6 +47,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.AppIconResource
 import com.nuvio.app.core.ui.appIconPainter
+import com.nuvio.app.features.details.DetailStreamPrefetchStatus
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
 import nuvio.composeapp.generated.resources.details_actions_menu_label
@@ -265,34 +268,40 @@ fun DetailActions(
             onClick = onClick,
         )
     }
-    DetailActionButtons(
-        playLabel = if (playEnabled) playLabel else stringResource(Res.string.playback_unavailable),
-        playEnabled = playEnabled,
-        pinnedAction = shuffleAction?.takeIf { shuffleEnabled },
-        secondaryActions = buildList {
-            if (!shuffleEnabled) shuffleAction?.let(::add)
-            add(
-                DetailSecondaryAction(
-                    label = stringResource(if (isWatched) Res.string.hero_mark_unwatched else Res.string.hero_mark_watched),
-                    icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.CheckCircleOutline,
-                    isActive = isWatched,
-                    onClick = onWatchedClick,
-                ),
-            )
-            add(
-                DetailSecondaryAction(
-                    label = stringResource(if (isSaved) Res.string.hero_remove_from_library else Res.string.hero_add_to_library),
-                    icon = if (isSaved) Icons.Default.Check else Icons.Default.Add,
-                    isActive = isSaved,
-                    onClick = onSaveClick,
-                    onLongClick = onSaveLongClick,
-                ),
-            )
-        },
-        isTablet = isTablet,
-        onPlayClick = onPlayClick,
-        onPlayLongClick = onPlayLongClick,
-    )
+    Column {
+        DetailActionButtons(
+            playLabel = if (playEnabled) playLabel else stringResource(Res.string.playback_unavailable),
+            playEnabled = playEnabled,
+            pinnedAction = shuffleAction?.takeIf { shuffleEnabled },
+            secondaryActions = buildList {
+                if (!shuffleEnabled) shuffleAction?.let(::add)
+                add(
+                    DetailSecondaryAction(
+                        label = stringResource(if (isWatched) Res.string.hero_mark_unwatched else Res.string.hero_mark_watched),
+                        icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.CheckCircleOutline,
+                        isActive = isWatched,
+                        onClick = onWatchedClick,
+                    ),
+                )
+                add(
+                    DetailSecondaryAction(
+                        label = stringResource(if (isSaved) Res.string.hero_remove_from_library else Res.string.hero_add_to_library),
+                        icon = if (isSaved) Icons.Default.Check else Icons.Default.Add,
+                        isActive = isSaved,
+                        onClick = onSaveClick,
+                        onLongClick = onSaveLongClick,
+                    ),
+                )
+            },
+            isTablet = isTablet,
+            onPlayClick = onPlayClick,
+            onPlayLongClick = onPlayLongClick,
+        )
+        DetailStreamPrefetchStatus(
+            modifier = Modifier.widthIn(max = if (isTablet) 520.dp else 420.dp).padding(top = 12.dp),
+            centered = !isTablet,
+        )
+    }
 }
 
 @Composable
