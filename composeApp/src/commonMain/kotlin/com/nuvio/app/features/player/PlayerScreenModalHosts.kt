@@ -89,6 +89,10 @@ internal fun PlayerScreenModalHosts(
     onSubmitIntroEndTimeChanged: (String) -> Unit,
     onSubmitIntroDismissed: () -> Unit,
     onSubmitIntroSuccess: () -> Unit,
+    // Fork: audio "Todos" scope and the quality panel (PlayerSourceTracksPanels.kt).
+    sourceTracks: PlayerSourceTracksUi? = null,
+    showQualityModal: Boolean = false,
+    onQualityModalDismissed: () -> Unit = {},
 ) {
     if (pendingP2pSwitch != null) {
         P2pConsentDialog(
@@ -120,6 +124,13 @@ internal fun PlayerScreenModalHosts(
         selectedIndex = selectedAudioIndex,
         onTrackSelected = onAudioTrackSelected,
         onDismiss = onAudioModalDismissed,
+        sourceTracks = sourceTracks,
+    )
+
+    PlayerQualityModal(
+        visible = showQualityModal,
+        sourceTracks = sourceTracks,
+        onDismiss = onQualityModalDismissed,
     )
 
     SubtitleModal(

@@ -64,6 +64,7 @@ internal fun PlayerScreenRuntime.lockPlayerControls() {
     liveGestureFeedback = null
     renderedGestureFeedback = null
     showAudioModal = false
+    showQualityModal = false
     showSubtitleModal = false
     showVideoSettingsModal = false
     showStreamInfo = false

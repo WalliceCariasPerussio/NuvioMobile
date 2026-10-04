@@ -23,6 +23,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +47,8 @@ fun AudioTrackModal(
     onTrackSelected: (Int) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    // Fork: "Stream atual" / "Todos" scopes; "Todos" lists the audio languages of every source.
+    sourceTracks: PlayerSourceTracksUi? = null,
 ) {
     PlayerOverlayScaffold(
         visible = visible,
@@ -68,7 +74,19 @@ fun AudioTrackModal(
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
 
-                if (audioTracks.isEmpty()) {
+                var showAllSources by remember { mutableStateOf(false) }
+                if (sourceTracks != null) {
+                    SourceTrackScopeChips(
+                        labels = sourceTrackAudioScopeLabels(),
+                        selectedIndex = if (showAllSources) 1 else 0,
+                        onSelected = { showAllSources = it == 1 },
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+
+                if (sourceTracks != null && showAllSources) {
+                    SourceAudioLanguageList(sourceTracks = sourceTracks, maxHeight = railMaxHeight)
+                } else if (audioTracks.isEmpty()) {
                     Text(
                         text = stringResource(Res.string.compose_player_no_audio_tracks_available),
                         color = Color.White.copy(alpha = 0.7f),

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
@@ -91,6 +92,7 @@ internal fun PlayerControlActions(
     resizeMode: PlayerResizeMode,
     onSubtitleClick: () -> Unit,
     onAudioClick: () -> Unit,
+    onQualityClick: (() -> Unit)? = null, // fork: quality panel
     onSourcesClick: (() -> Unit)?,
     onEpisodesClick: (() -> Unit)?,
     onNextEpisodeClick: (() -> Unit)?,
@@ -118,6 +120,12 @@ internal fun PlayerControlActions(
             stringResource(Res.string.compose_player_audio), onAudioClick,
             painter = appIconPainter(AppIconResource.PlayerAudioFilled),
         ),
+        onQualityClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.player_source_tracks_quality_title), it,
+                icon = Icons.Rounded.HighQuality,
+            )
+        },
         onSourcesClick?.let {
             PlayerControlAction(
                 stringResource(Res.string.compose_player_sources), it,

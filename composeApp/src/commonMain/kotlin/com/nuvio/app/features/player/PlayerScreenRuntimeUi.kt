@@ -316,6 +316,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                 refreshTracks()
                 showAudioModal = true
             },
+            onQualityClick = if (activeVideoId != null) { { showQualityModal = true } } else null, // fork
             onVideoSettingsClick = if (isIos) {
                 {
                     showVideoSettingsModal = true
@@ -478,6 +479,7 @@ private fun BoxScope.RenderPlaybackOverlays(
 
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
+    val sourceTracks = rememberPlayerSourceTracksUi() // fork
     PlayerScreenModalHosts(
         pendingP2pSwitch = pendingP2pSwitch,
         onPendingP2pSwitchChanged = { pendingP2pSwitch = it },
@@ -636,6 +638,9 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         submitIntroEndTimeStr = submitIntroEndTimeStr,
         onSubmitIntroEndTimeChanged = { submitIntroEndTimeStr = it },
         onSubmitIntroDismissed = { showSubmitIntroModal = false },
+        sourceTracks = sourceTracks.takeIf { activeVideoId != null }, // fork
+        showQualityModal = showQualityModal,
+        onQualityModalDismissed = { showQualityModal = false },
         onSubmitIntroSuccess = {
             submitIntroStartTimeStr = "00:00"
             submitIntroEndTimeStr = "00:00"

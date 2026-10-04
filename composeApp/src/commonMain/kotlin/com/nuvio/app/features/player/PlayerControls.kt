@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Forward10
@@ -106,6 +107,7 @@ internal fun PlayerControlsShell(
     onSpeedClick: () -> Unit,
     onSubtitleClick: () -> Unit,
     onAudioClick: () -> Unit,
+    onQualityClick: (() -> Unit)? = null, // fork: quality panel
     onVideoSettingsClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
     onEpisodesClick: (() -> Unit)? = null,
@@ -252,6 +254,7 @@ internal fun PlayerControlsShell(
                     onSpeedClick = onSpeedClick,
                     onSubtitleClick = onSubtitleClick,
                     onAudioClick = onAudioClick,
+                    onQualityClick = onQualityClick,
                     onSourcesClick = onSourcesClick,
                     onEpisodesClick = onEpisodesClick,
                     modifier = Modifier
@@ -301,6 +304,7 @@ internal fun PlayerControlsShell(
                         resizeMode = resizeMode,
                         onSubtitleClick = onSubtitleClick,
                         onAudioClick = onAudioClick,
+                        onQualityClick = onQualityClick,
                         onSourcesClick = onSourcesClick,
                         onEpisodesClick = onEpisodesClick,
                         onNextEpisodeClick = onNextEpisodeClick,
@@ -611,6 +615,7 @@ private fun ProgressControls(
     onSpeedClick: () -> Unit,
     onSubtitleClick: () -> Unit,
     onAudioClick: () -> Unit,
+    onQualityClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
     onEpisodesClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -667,6 +672,13 @@ private fun ProgressControls(
                         painter = audioPainter,
                         onClick = onAudioClick,
                     )
+                    if (onQualityClick != null) {
+                        PlayerActionPillButton(
+                            label = stringResource(Res.string.player_source_tracks_quality_title),
+                            icon = Icons.Rounded.HighQuality,
+                            onClick = onQualityClick,
+                        )
+                    }
                     if (onSourcesClick != null) {
                         PlayerActionPillButton(
                             label = stringResource(Res.string.compose_player_sources),

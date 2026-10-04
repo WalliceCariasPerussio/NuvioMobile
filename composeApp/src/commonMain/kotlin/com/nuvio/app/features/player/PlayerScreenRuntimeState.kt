@@ -193,6 +193,7 @@ internal class PlayerScreenRuntime(
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)
 
     var showAudioModal by mutableStateOf(false)
+    var showQualityModal by mutableStateOf(false) // fork: PlayerSourceTracksPanels.kt
     var showSubtitleModal by mutableStateOf(false)
     var showVideoSettingsModal by mutableStateOf(false)
     var showStreamInfo by mutableStateOf(false)
