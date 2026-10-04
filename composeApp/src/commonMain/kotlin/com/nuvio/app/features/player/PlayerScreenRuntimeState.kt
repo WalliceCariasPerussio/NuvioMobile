@@ -194,6 +194,7 @@ internal class PlayerScreenRuntime(
 
     var showAudioModal by mutableStateOf(false)
     var showQualityModal by mutableStateOf(false) // fork: PlayerSourceTracksPanels.kt
+    var sourceTracksPanelsSearching = 0 // fork: audio/quality panels on screen that asked for the sources
     var showSubtitleModal by mutableStateOf(false)
     var showVideoSettingsModal by mutableStateOf(false)
     var showStreamInfo by mutableStateOf(false)

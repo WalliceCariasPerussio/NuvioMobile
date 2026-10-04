@@ -175,7 +175,8 @@ internal fun PlayerControlActions(
             )
         },
     )
-    val hasOverflow = actions.size > 5
+    val visibleCount = if (onQualityClick != null) 6 else 5 // fork: room for the quality button
+    val hasOverflow = actions.size > visibleCount
     var expanded by remember(hasOverflow) { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val startOffset = if (onNextEpisodeClick != null) (-13).dp else (-12).dp
@@ -192,7 +193,7 @@ internal fun PlayerControlActions(
                 modifier = Modifier.weight(1f).offset(x = startOffset).horizontalScroll(scrollState),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                actions.take(if (expanded) actions.size else 5).forEach { action ->
+                actions.take(if (expanded) actions.size else visibleCount).forEach { action ->
                     PlayerAction(
                         description = action.description,
                         onClick = {

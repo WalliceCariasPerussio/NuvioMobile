@@ -161,6 +161,7 @@ private fun PlayerScreenRuntime.bestSourceStream(
 /** The panels list every source of what is playing: search them (usually kept from the start). */
 internal fun PlayerScreenRuntime.loadSourcesForTrackPanels() {
     val videoId = activeVideoId ?: return
+    sourceTracksPanelsSearching++
     PlayerStreamsRepository.loadSources(
         type = contentType ?: parentMetaType,
         videoId = videoId,
@@ -210,4 +211,15 @@ private fun PlayerScreenRuntime.switchSourceForTrackPanel(stream: StreamItem, la
 private fun PlayerScreenRuntime.closeSourceTrackPanels() {
     showAudioModal = false
     showQualityModal = false
+}
+
+/**
+ * A panel left the screen: stop the search it started, as closing Fontes does, unless Fontes or the
+ * source failover is using it now.
+ */
+internal fun PlayerScreenRuntime.stopSourceTracksSearch() {
+    if (sourceTracksPanelsSearching == 0) return
+    sourceTracksPanelsSearching--
+    if (sourceTracksPanelsSearching > 0 || showSourcesPanel || sourceFailover.inProgress) return
+    PlayerStreamsRepository.stopSourcesLoading()
 }

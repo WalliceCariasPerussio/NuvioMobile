@@ -23,7 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +65,7 @@ class PlayerSourceTracksUi internal constructor(
     internal val options: SourceTrackOptions,
     internal val isLoading: Boolean,
     internal val onRequestSources: () -> Unit,
+    internal val onPanelClosed: () -> Unit,
     internal val onLanguageSelected: (String) -> Unit,
     internal val onQualitySelected: (StreamQualityBucket, String?) -> Unit,
 )
@@ -95,6 +96,7 @@ internal fun PlayerScreenRuntime.rememberPlayerSourceTracksUi(): PlayerSourceTra
         options = options,
         isLoading = sourceStreamsState.isAnyLoading,
         onRequestSources = { loadSourcesForTrackPanels() },
+        onPanelClosed = { stopSourceTracksSearch() },
         onLanguageSelected = { language -> selectSourceAudioLanguage(language) },
         onQualitySelected = { quality, language -> selectSourceQuality(quality, language) },
     )
@@ -207,7 +209,10 @@ internal fun SourceAudioLanguageList(
     sourceTracks: PlayerSourceTracksUi,
     maxHeight: Dp,
 ) {
-    LaunchedEffect(Unit) { sourceTracks.onRequestSources() }
+    DisposableEffect(Unit) {
+        sourceTracks.onRequestSources()
+        onDispose { sourceTracks.onPanelClosed() }
+    }
     val languages = sourceTracks.options.languages
     if (languages.isEmpty()) {
         SourceTrackEmptyText(sourceTracks.isLoading)
@@ -252,7 +257,10 @@ internal fun PlayerQualityModal(
         contentPadding = PaddingValues(start = 44.dp, end = 44.dp, top = 28.dp, bottom = 64.dp),
     ) {
         val tracks = sourceTracks ?: return@PlayerOverlayScaffold
-        LaunchedEffect(Unit) { tracks.onRequestSources() }
+        DisposableEffect(Unit) {
+            tracks.onRequestSources()
+            onDispose { tracks.onPanelClosed() }
+        }
         val options = tracks.options
         val currentLanguage = options.currentLanguage
         var showAll by remember { mutableStateOf(currentLanguage == null) }
