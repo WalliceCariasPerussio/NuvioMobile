@@ -246,6 +246,11 @@ object MetaDetailsRepository {
             val payload = fetchAddonResponseText(url)
             log.d { "Raw payload length=${payload.length}, first 500 chars: ${payload.take(500)}" }
             val result = MetaDetailsParser.parse(payload)
+            if (result.name.looksLikeAddonError()) {
+                // Treated as missing, so the next addon (or the TMDB fallback) is tried.
+                log.w { "Ignoring meta whose name is an addon error from $url: ${result.name}" }
+                return null
+            }
             val tmdbEnriched = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
                 TmdbMetadataService.enrichMeta(
                     meta = result,
