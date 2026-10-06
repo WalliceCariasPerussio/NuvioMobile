@@ -193,6 +193,7 @@ internal fun PlayerScreenRuntime.switchToP2pSourceStream(stream: StreamItem) {
     val failoverResume = sourceFailover.takeResume()
     activeInitialPositionMs = failoverResume?.first ?: currentPositionMs
     activeInitialProgressFraction = failoverResume?.second
+    rememberSourceDeclaredSize(stream)
     showSourcesPanel = false
     controlsVisible = true
     PlayerStreamsRepository.pauseSearchForPlayback()
@@ -288,6 +289,7 @@ internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
     val failoverResume = sourceFailover.takeResume()
     activeInitialPositionMs = failoverResume?.first ?: currentPositionMs
     activeInitialProgressFraction = failoverResume?.second
+    rememberSourceDeclaredSize(stream)
     showSourcesPanel = false
     controlsVisible = true
     PlayerStreamsRepository.pauseSearchForPlayback()
@@ -412,7 +414,10 @@ internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
             if (isCurrentRequest()) switchToDownloadedEpisode(item, episode)
         },
         onEpisodeStreamSelected = { stream, episode ->
-            if (isCurrentRequest()) switchToEpisodeStream(stream, episode)
+            if (isCurrentRequest()) {
+                clearManualSourcePick() // fork: the autoplay picked this source
+                switchToEpisodeStream(stream, episode)
+            }
         },
         onManualSelectionRequired = { nextVideo ->
             if (isCurrentRequest()) {
@@ -475,6 +480,7 @@ private fun PlayerScreenRuntime.resetEpisodePanelAndNextEpisodeState() {
     episodeStreamsPanelState = EpisodeStreamsPanelState()
     cancelNextEpisodeAutoPlay()
     PlayerStreamsRepository.clearEpisodeStreams()
+    resetSourceFailoverForEpisode() // fork
 }
 
 private fun PlayerScreenRuntime.resolveEpisodeResume(epVideoId: String, episode: MetaVideo): EpisodeResume {
@@ -508,6 +514,7 @@ private fun PlayerScreenRuntime.applyEpisodeStreamMetadata(
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
+    rememberSourceDeclaredSize(stream) // fork
     activeSeasonNumber = episode.season
     activeEpisodeNumber = episode.episode
     activeEpisodeTitle = episode.title

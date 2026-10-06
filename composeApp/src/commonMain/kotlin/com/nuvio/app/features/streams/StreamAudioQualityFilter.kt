@@ -186,13 +186,39 @@ private fun StreamItem.detectAudioLanguages(): List<String> {
             val trimmed = line.trimStart()
             trimmed.startsWith(SubtitleMarker) || trimmed.startsWith(OtherTracksMarker)
         }
-        .flatMap { line -> FlagLanguages.filterKeys { flag -> flag in line }.values }
+        .flatMap { line -> line.flagEmojis().mapNotNull { FlagLanguages[it] } }
         .distinct()
     if (flagged.isNotEmpty()) return flagged
 
     val text = listOfNotNull(name, title, behaviorHints.filename).joinToString(" ").lowercase()
     if (WithoutPtBrPattern.containsMatchIn(text)) return emptyList()
     return if (DubbedPtBrPattern.containsMatchIn(text)) listOf("pt-br") else emptyList()
+}
+
+/**
+ * Flags in [this], in order. A flag is a pair of regional indicators (each a surrogate pair), read
+ * from the start of each run: "🇬🇧🇷🇺" is GB + RU, never the BR formed by the letters in the middle.
+ */
+private fun String.flagEmojis(): List<String> {
+    val flags = mutableListOf<String>()
+    var pending = -1
+    var index = 0
+    while (index < length) {
+        val isIndicator = this[index] == '\uD83C' && index + 1 < length && this[index + 1] in '\uDDE6'..'\uDDFF'
+        if (!isIndicator) {
+            pending = -1
+            index++
+            continue
+        }
+        if (pending < 0) {
+            pending = index
+        } else {
+            flags += substring(pending, index + 2)
+            pending = -1
+        }
+        index += 2
+    }
+    return flags
 }
 
 private fun StreamItem.detectQuality(): StreamQualityBucket {

@@ -116,6 +116,9 @@ internal fun PlayerScreenRuntime.currentLaunch(launch: PlayerLaunch): PlayerLaun
         torrentTrackers = activeTorrentTrackers,
         initialPositionMs = positionMs ?: activeInitialPositionMs,
         initialProgressFraction = activeInitialProgressFraction.takeIf { positionMs == null },
+        // Fork: what the failover knows of the source playing (PlayerSourceFailover.kt).
+        manualSourcePick = isManualSourcePlaying(),
+        sourceVideoSize = currentDeclaredSize(),
     )
 }
 

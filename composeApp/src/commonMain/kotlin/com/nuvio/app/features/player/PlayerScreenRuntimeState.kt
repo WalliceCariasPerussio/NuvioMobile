@@ -187,7 +187,7 @@ internal class PlayerScreenRuntime(
     var nextEpisodePreloadJob by mutableStateOf<Job?>(null)
     var nextEpisodePreloadTriggered by mutableStateOf(false)
     // Fork: failover to the next source in the "best in my language" mode (PlayerSourceFailover.kt).
-    val sourceFailover = SourceFailoverState()
+    val sourceFailover = SourceFailoverState(activeSourceIdentityKey, args.launchId?.let(PlayerLaunchStore::get))
     var pendingP2pSwitch by mutableStateOf<PendingPlayerP2pSwitch?>(null)
     var credentialRefreshJob by mutableStateOf<Job?>(null)
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)

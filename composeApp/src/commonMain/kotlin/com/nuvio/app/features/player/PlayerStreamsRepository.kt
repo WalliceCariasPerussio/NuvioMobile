@@ -110,7 +110,10 @@ object PlayerStreamsRepository {
         )
     }
 
-    /** Searches the next episode in the background; its groups land in [StreamSearchCache]. */
+    /**
+     * Searches the next episode's addons in the background; their groups land in [StreamSearchCache].
+     * Not the plugins: they stay paused during playback, and run when the next episode is searched.
+     */
     fun preloadStreams(type: String, videoId: String, season: Int?, episode: Int?) {
         fetchStreams(
             type = type,
@@ -123,6 +126,7 @@ object PlayerStreamsRepository {
             setRequestKey = { preloadRequestKey = it },
             jobHolder = { preloadJob },
             setJob = { preloadJob = it },
+            includePlugins = false,
         )
     }
 
@@ -215,6 +219,7 @@ object PlayerStreamsRepository {
         setRequestKey: (String?) -> Unit,
         jobHolder: () -> Job?,
         setJob: (Job) -> Unit,
+        includePlugins: Boolean = true, // fork: false for the next episode's preload
     ) {
         val pluginUiState = if (AppFeaturePolicy.pluginsEnabled) {
             PluginRepository.initialize()
@@ -223,7 +228,7 @@ object PlayerStreamsRepository {
             PluginsUiState(pluginsEnabled = false)
         }
         val requestKey = "$type::$videoId::$season::$episode::pluginsGrouped=${pluginUiState.groupStreamsByRepository}"
-        PluginRepository.setLocalPluginSearchPaused(false)
+        if (includePlugins) PluginRepository.setLocalPluginSearchPaused(false)
         val current = stateFlow.value
         val cachedKey = requestKeyHolder()
         if (
@@ -264,7 +269,7 @@ object PlayerStreamsRepository {
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
         val debridSettings = DebridSettingsRepository.snapshot()
-        val pluginScrapers = if (AppFeaturePolicy.pluginsEnabled) {
+        val pluginScrapers = if (AppFeaturePolicy.pluginsEnabled && includePlugins) {
             PluginRepository.getEnabledScrapersForType(type)
         } else {
             emptyList()

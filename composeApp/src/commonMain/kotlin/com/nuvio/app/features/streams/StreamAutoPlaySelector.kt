@@ -213,7 +213,7 @@ object StreamAutoPlaySelector {
         )
     }
 
-    private fun StreamItem.isAutoPlayable(
+    internal fun StreamItem.isAutoPlayable(
         debridEnabled: Boolean,
         activeResolverProviderId: String?,
     ): Boolean =

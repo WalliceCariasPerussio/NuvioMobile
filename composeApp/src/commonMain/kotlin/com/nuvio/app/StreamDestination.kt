@@ -215,6 +215,8 @@ internal fun StreamDestination(
             initialPositionMs = resolvedResumePositionMs ?: 0L,
             initialProgressFraction = resolvedResumeProgressFraction,
             contentLanguage = resolveLaunchContentLanguage(),
+            manualSourcePick = !replaceStreamRoute, // fork: only autoplay replaces the streams screen
+            sourceVideoSize = stream.behaviorHints.videoSize, // fork
         )
 
         autoPlayNavigationStarted = replaceStreamRoute
@@ -334,6 +336,7 @@ internal fun StreamDestination(
                 initialPositionMs = launch.resumePositionMs ?: 0L,
                 initialProgressFraction = launch.resumeProgressFraction,
                 contentLanguage = resolveLaunchContentLanguage(cached.contentLanguage),
+                sourceVideoSize = cached.videoSize, // fork
             )
             if (playerSettings.externalPlayerEnabled) {
                 openExternalPlayback(playerLaunch)
@@ -486,6 +489,7 @@ internal fun StreamDestination(
             initialPositionMs = launch.resumePositionMs ?: 0L,
             initialProgressFraction = launch.resumeProgressFraction,
             contentLanguage = resolveLaunchContentLanguage(),
+            sourceVideoSize = stream.behaviorHints.videoSize, // fork
         )
         if (playerSettings.externalPlayerEnabled) {
             openExternalPlayback(playerLaunch)
@@ -634,6 +638,8 @@ internal fun StreamDestination(
             initialPositionMs = resolvedResumePositionMs ?: 0L,
             initialProgressFraction = resolvedResumeProgressFraction,
             contentLanguage = resolveLaunchContentLanguage(),
+            manualSourcePick = true, // fork: picked in the list
+            sourceVideoSize = stream.behaviorHints.videoSize, // fork
         )
 
         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled)) {

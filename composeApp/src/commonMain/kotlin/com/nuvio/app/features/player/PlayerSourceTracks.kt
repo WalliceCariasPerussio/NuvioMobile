@@ -1,11 +1,13 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.streams.SourceRanking
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLanguageUnknown
 import com.nuvio.app.features.streams.StreamQualityBucket
 import com.nuvio.app.features.streams.StreamTraits
 import com.nuvio.app.features.streams.bucket
+import com.nuvio.app.features.streams.isAutoPlayableWith
 import com.nuvio.app.features.streams.isWithin
 import com.nuvio.app.features.streams.languageCounts
 import com.nuvio.app.features.streams.languageKeysByCount
@@ -38,15 +40,30 @@ internal fun PlayerScreenRuntime.isCurrentPlayerControlStream(stream: StreamItem
 internal fun PlayerScreenRuntime.currentSourceStream(streams: List<StreamItem>): StreamItem? =
     streams.firstOrNull { isCurrentPlayerControlStream(it) }
 
+/**
+ * Language of [track] in the source list's terms: as the stream playing lists it, else as the track
+ * tells it (its label may tell PT-BR or Latin Spanish when its code doesn't).
+ */
+private fun audioTrackLanguage(track: AudioTrack, streamLanguages: List<String>): String? {
+    val base = streamLanguageCode(track.language) ?: return null
+    val code = streamLanguageCode(SubtitleLanguageMatching.detectTrackLanguageVariant(track.language, track.label, track.id))
+        ?.takeIf { sameLanguage(it, base) }
+        ?: base
+    return streamLanguages.firstOrNull { it == code }
+        ?: streamLanguages.firstOrNull { sameLanguage(it, code) }
+        ?: code
+}
+
 /** Language of the audio track playing, in the source list's terms (e.g. "pt-br", "ja"). */
 internal fun PlayerScreenRuntime.currentAudioLanguage(current: StreamItem?): String? {
     val streamLanguages = current?.streamTraits()?.audioLanguages.orEmpty()
     val trackLanguage = audioTracks.firstOrNull { it.index == selectedAudioIndex }
-        ?.language
-        ?.let(::streamLanguageCode)
+        ?.let { audioTrackLanguage(it, streamLanguages) }
         ?: return streamLanguages.firstOrNull()
-    return streamLanguages.firstOrNull { it == trackLanguage }
-        ?: streamLanguages.firstOrNull { sameLanguage(it, trackLanguage) }
+    if (trackLanguage in streamLanguages || '-' in trackLanguage) return trackLanguage
+    // Only the base code ("pt", as ExoPlayer reports a PT-BR dub) and no stream to tell which: the
+    // preferred variant of it, so another country's release doesn't rank first.
+    return preferredAudioTargets(playerSettingsUiState, contentLanguage).firstOrNull { sameLanguage(it, trackLanguage) }
         ?: trackLanguage
 }
 
@@ -75,6 +92,8 @@ internal data class SourceQualityOption(
     val hasCurrentAudio: Boolean,
     /** Audio languages found in this quality, preferred first (for the "switch audio to" prompt). */
     val languages: List<String>,
+    /** Some source of this quality has no audio language marked ("Não identificado" in the prompt). */
+    val hasUnknownAudio: Boolean = false,
 )
 
 internal class SourceTrackOptions(
@@ -88,7 +107,9 @@ internal fun PlayerScreenRuntime.buildSourceTrackOptions(
     streams: List<StreamItem>,
     preferredTargets: List<String>,
 ): SourceTrackOptions {
-    val traits = streams.map { it.streamTraits() }
+    // Only what a pick here can start (the autoplay's rule): a language or quality without it isn't offered.
+    val debrid = DebridSettingsRepository.snapshot()
+    val traits = streams.filter { it.isAutoPlayableWith(debrid) }.map { it.streamTraits() }
     val current = currentSourceStream(streams)
     val currentLanguage = currentAudioLanguage(current)
     val currentQuality = current?.streamTraits()?.quality
@@ -107,7 +128,8 @@ internal fun PlayerScreenRuntime.buildSourceTrackOptions(
                 val cap = playerSettingsUiState.streamAutoPlayMaxQuality.bucket
                 qualities.filter { it.isWithin(cap) }.minOrNull() ?: qualities.maxOrNull()
             },
-            isCurrent = currentLanguage != null && sameLanguage(key, currentLanguage),
+            // Exact: PT-BR playing doesn't mark Portuguese (Portugal) too.
+            isCurrent = key == currentLanguage,
         )
     }
 
@@ -124,6 +146,7 @@ internal fun PlayerScreenRuntime.buildSourceTrackOptions(
             isCurrent = bucket == currentQuality,
             hasCurrentAudio = currentLanguage == null || inBucket.any { hasLanguage(it, currentLanguage) },
             languages = orderedKeys.filter { key -> inBucket.any { key in it.audioLanguages } },
+            hasUnknownAudio = inBucket.any { it.audioLanguages.isEmpty() },
         )
     }
 
@@ -138,14 +161,18 @@ internal fun PlayerScreenRuntime.buildSourceTrackOptions(
 /**
  * Best source for a language and/or quality, by the shared ranking (StreamSourceRanking.kt): a
  * language pick stays within the quality cap when it can; a quality picked by hand has no cap. Ties
- * prefer the release group and the addon playing now.
+ * prefer the release group and the addon playing now. Only sources autoplay would start (no torrent
+ * where P2P can't play it).
  */
 private fun PlayerScreenRuntime.bestSourceStream(
     streams: List<StreamItem>,
     language: String?,
     quality: StreamQualityBucket?,
 ): StreamItem? {
-    val scoped = if (quality == null) streams else streams.filter { it.streamTraits().quality == quality }
+    val debrid = DebridSettingsRepository.snapshot()
+    val scoped = streams.filter {
+        it.isAutoPlayableWith(debrid) && (quality == null || it.streamTraits().quality == quality)
+    }
     return rankSourceStreams(
         scoped,
         SourceRanking(
@@ -172,9 +199,15 @@ internal fun PlayerScreenRuntime.loadSourcesForTrackPanels() {
 
 /** "Todos" scope: plays the language; on the stream playing if it carries it, else on its best source. */
 internal fun PlayerScreenRuntime.selectSourceAudioLanguage(language: String) {
-    val embedded = audioTracks.firstOrNull { track ->
-        track.language?.let(::streamLanguageCode)?.let { sameLanguage(it, language) } == true
+    val current = currentSourceStream(sourceStreamsState.groups.flatMap { it.streams })
+    // The row marked as playing: nothing to switch.
+    if (language == currentAudioLanguage(current)) {
+        closeSourceTrackPanels()
+        return
     }
+    val streamLanguages = current?.streamTraits()?.audioLanguages.orEmpty()
+    // Exact: a Castilian track ("spa") doesn't play Latin Spanish, nor "pt" PT-BR.
+    val embedded = audioTracks.firstOrNull { track -> audioTrackLanguage(track, streamLanguages) == language }
     if (embedded != null) {
         // Same as picking the track in "Stream atual".
         selectedAudioIndex = embedded.index
@@ -189,16 +222,21 @@ internal fun PlayerScreenRuntime.selectSourceAudioLanguage(language: String) {
 
 internal fun PlayerScreenRuntime.selectSourceQuality(quality: StreamQualityBucket, language: String?) {
     val streams = sourceStreamsState.groups.flatMap { it.streams }
-    // The panel only offers a quality without the current audio through its "switch audio to" prompt.
-    val stream = bestSourceStream(streams, language, quality) ?: return
+    // The panel only offers a quality without the current audio through its "switch audio to" prompt,
+    // where "Não identificado" means the sources without an audio language marked.
+    val unmarked = language == StreamLanguageUnknown
+    val scoped = if (unmarked) streams.filter { it.streamTraits().audioLanguages.isEmpty() } else streams
+    val stream = bestSourceStream(scoped, language.takeUnless { unmarked }, quality) ?: return
     if (isCurrentPlayerControlStream(stream)) {
         closeSourceTrackPanels()
         return
     }
-    switchSourceForTrackPanel(stream, language)
+    switchSourceForTrackPanel(stream, language.takeUnless { unmarked })
 }
 
 private fun PlayerScreenRuntime.switchSourceForTrackPanel(stream: StreamItem, language: String?) {
+    // A choice by hand, as in the Fontes panel: the failover doesn't replace it.
+    markManualSourcePick(stream)
     // The new stream restores this title's saved audio choice, so it starts on the language picked here.
     if (language != null) {
         updateTrackPreference { it.copy(audioLanguage = language, audioName = null, audioTrackId = null) }

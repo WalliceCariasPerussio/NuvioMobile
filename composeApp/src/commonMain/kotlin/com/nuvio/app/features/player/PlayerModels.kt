@@ -46,6 +46,10 @@ data class PlayerLaunch(
     val initialPositionMs: Long = 0L,
     val initialProgressFraction: Float? = null,
     val contentLanguage: String? = null,
+    // Fork (PlayerSourceFailover.kt): the source was picked by hand in the streams list, and the
+    // size it declares (tells an addon's short error clip from a short episode).
+    val manualSourcePick: Boolean = false,
+    val sourceVideoSize: Long? = null,
 )
 
 object PlayerLaunchStore {

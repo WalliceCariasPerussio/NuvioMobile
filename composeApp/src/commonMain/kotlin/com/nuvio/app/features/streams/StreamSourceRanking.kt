@@ -1,5 +1,7 @@
 package com.nuvio.app.features.streams
 
+import com.nuvio.app.features.debrid.DebridSettings
+
 // Fork: one rule for every automatic source choice (autoplay "best in my language", the player's
 // audio/quality panels and the failover to the next source), Netflix-like: the language first,
 // then the best quality up to the cap, then the source most likely to start well.
@@ -80,7 +82,8 @@ private class RankedStream(val stream: StreamItem, val key: List<Int>, val size:
 /**
  * Autoplay "best in my language", as the ordered candidates of the first language that has a source
  * within the cap (preferred, then secondary). Empty when none does, so the source list opens; a
- * language only found above the cap is not played automatically (4K stays a manual choice).
+ * language only found above the cap is not played automatically (4K stays a manual choice), the next
+ * language is tried instead. No language at all (audio "Default", no secondary) accepts any.
  */
 internal fun rankBestInPreferredLanguage(
     streams: List<StreamItem>,
@@ -90,19 +93,26 @@ internal fun rankBestInPreferredLanguage(
     // The source playing, for the next episode: it comes first within the language and the cap.
     preferredAddonId: String? = null,
 ): List<StreamItem> {
-    for (language in preferredLanguages) {
-        val inLanguage = rankSourceStreams(
+    for (language in preferredLanguages.ifEmpty { listOf(null) }) {
+        val withinCap = rankSourceStreams(
             streams,
-            SourceRanking(language, maxQuality, strictCap = false, preferredBingeGroup, preferredAddonId),
+            SourceRanking(language, maxQuality, strictCap = true, preferredBingeGroup, preferredAddonId),
         )
-        if (inLanguage.isEmpty()) continue
-        val withinCap = inLanguage.filter { it.streamTraits().quality.isWithin(maxQuality) }
+        if (withinCap.isEmpty()) continue
         // Same release as the episode before, else the same addon: what the user was watching.
         val continuing = preferredBingeGroup?.let { group -> withinCap.firstOrNull { it.behaviorHints.bingeGroup == group } }
             ?: preferredAddonId?.let { id -> withinCap.firstOrNull { it.addonId == id } }
         return if (continuing == null) withinCap else listOf(continuing) + (withinCap - continuing)
     }
     return emptyList()
+}
+
+/** The autoplay's rule for a source that can start on its own ([StreamAutoPlaySelector]). */
+internal fun StreamItem.isAutoPlayableWith(debrid: DebridSettings): Boolean {
+    val stream = this
+    return with(StreamAutoPlaySelector) {
+        stream.isAutoPlayable(debrid.canResolvePlayableLinks, debrid.activeResolverProviderId)
+    }
 }
 
 /**

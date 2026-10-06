@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.streams.StreamLanguageUnknown
 import com.nuvio.app.features.streams.StreamQualityBucket
 import com.nuvio.app.features.streams.preferredAudioTargets
 import com.nuvio.app.features.streams.streamLanguageLabel
@@ -387,6 +388,17 @@ private fun QualityAudioPrompt(
                 isSelected = false,
                 onClick = { onLanguageSelected(language) },
             )
+        }
+        // Releases without an audio language marked (selectSourceQuality takes this key).
+        if (option.hasUnknownAudio) {
+            item(key = StreamLanguageUnknown) {
+                SourceTrackOptionRow(
+                    label = streamLanguageLabel(StreamLanguageUnknown),
+                    detail = null,
+                    isSelected = false,
+                    onClick = { onLanguageSelected(StreamLanguageUnknown) },
+                )
+            }
         }
         item(key = "cancel") {
             SourceTrackOptionRow(
