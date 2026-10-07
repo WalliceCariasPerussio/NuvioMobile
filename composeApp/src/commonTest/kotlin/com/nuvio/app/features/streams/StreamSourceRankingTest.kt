@@ -41,10 +41,49 @@ class StreamSourceRankingTest {
         assertEquals(listOf("en", "es"), stream("us-es", "🇺🇸🇪🇸 1080p").streamTraits().audioLanguages)
     }
 
-    private fun stream(id: String, name: String) = StreamItem(
+    @Test
+    fun nextEpisodeKeepsTheAddonAudioAndQualityPlayingEvenOutsideThePreferredLanguage() {
+        val playing = stream("e9", "🇯🇵 720p", addonId = "animesdigital")
+        val otherAddon1080 = stream("t-1080", "🇯🇵 1080p", addonId = "torrentio")
+        val sameAddon1080 = stream("ad-1080", "🇯🇵 1080p", addonId = "animesdigital")
+        val sameAddon720 = stream("ad-720", "🇯🇵 720p", addonId = "animesdigital")
+
+        assertEquals(sameAddon720, selectContinuation(listOf(otherAddon1080, sameAddon1080, sameAddon720), playing))
+    }
+
+    @Test
+    fun nextEpisodeResumedFromASavedLinkKeepsTheSourceWithTheSameName() {
+        // A saved link keeps only the name: no addon, no audio line.
+        val playing = stream("e9", "AnimesDigital LEG [Blogger] - 720p", addonId = "")
+        val leg1080 = stream("leg-1080", "AnimesDigital LEG - 1080p\n🔊 Japonês", addonId = "animesdigital")
+        val blogger = stream("blogger-720", "AnimesDigital LEG [Blogger] - 720p", addonId = "animesdigital")
+
+        assertEquals(blogger, selectContinuation(listOf(leg1080, blogger), playing))
+    }
+
+    @Test
+    fun nextEpisodeKeepsTheBingeGroupWithoutSwappingTheDubForTheOriginal() {
+        val group = StreamBehaviorHints(bingeGroup = "torrentio|1080p")
+        val playing = stream("e9", "🇯🇵 1080p", addonId = "torrentio").copy(behaviorHints = group)
+        val dub = stream("dub", "🇧🇷 1080p", addonId = "torrentio").copy(behaviorHints = group)
+        val original = stream("ja", "🇯🇵 1080p", addonId = "torrentio").copy(behaviorHints = group)
+
+        assertEquals(original, selectContinuation(listOf(dub, original), playing))
+    }
+
+    @Test
+    fun nextEpisodeWithoutTheSourcePlayingLeavesTheChoiceToTheLanguageRanking() {
+        val playing = stream("e9", "🇯🇵 720p", addonId = "animesdigital")
+        val otherAddon = stream("t-720", "🇯🇵 720p", addonId = "torrentio")
+        val sameAddonOtherAudio = stream("dub-720", "🇧🇷 720p", addonId = "animesdigital")
+
+        assertEquals(null, selectContinuation(listOf(otherAddon, sameAddonOtherAudio), playing))
+    }
+
+    private fun stream(id: String, name: String, addonId: String = "addon:test") = StreamItem(
         name = name,
         url = "https://example.com/$id.mkv",
         addonName = "Addon",
-        addonId = "addon:test",
+        addonId = addonId,
     )
 }

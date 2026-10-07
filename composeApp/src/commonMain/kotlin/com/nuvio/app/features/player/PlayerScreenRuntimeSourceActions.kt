@@ -410,6 +410,7 @@ internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
         currentStreamBingeGroup = currentStreamBingeGroup,
         preferredLanguages = nextEpisodeAudioLanguages(),
         preferredAddonId = activeProviderAddonId,
+        playingStream = playingStreamForNextEpisode(),
         onDownloadedEpisodeSelected = { item, episode ->
             if (isCurrentRequest()) switchToDownloadedEpisode(item, episode)
         },

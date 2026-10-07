@@ -107,6 +107,37 @@ internal fun rankBestInPreferredLanguage(
     return emptyList()
 }
 
+/**
+ * The next episode keeps what was [playing]: the same release (binge group), the same quality
+ * first; else the source with the same name ("AnimesDigital LEG [Blogger] - 720p") from the same
+ * addon, when known; else the same addon in the same quality. Always with the same audio: every
+ * language the playing source had, so a group shared by the dub and the original doesn't swap the
+ * language. A source playing without a known language (resumed with only its name) doesn't rule any
+ * out. Null when the next episode has none of them.
+ */
+internal fun selectContinuation(streams: List<StreamItem>, playing: StreamItem): StreamItem? {
+    val playingTraits = playing.streamTraits()
+    val languages = playingTraits.audioLanguages
+    val candidates = streams.map { it to it.streamTraits() }
+        .filter { (_, traits) -> traits.audioLanguages.containsAll(languages) }
+    fun List<Pair<StreamItem, StreamTraits>>.sameQualityFirst(): StreamItem? =
+        (firstOrNull { (_, traits) -> traits.quality == playingTraits.quality } ?: firstOrNull())?.first
+
+    playing.behaviorHints.bingeGroup?.trim()?.takeIf { it.isNotEmpty() }?.let { group ->
+        candidates.filter { (stream, _) -> stream.behaviorHints.bingeGroup == group }
+            .sameQualityFirst()?.let { return it }
+    }
+    val addonId = playing.addonId.takeIf { it.isNotBlank() }
+    playing.name?.trim()?.takeIf { it.isNotEmpty() }?.let { name ->
+        candidates.filter { (stream, _) -> stream.name?.trim() == name && (addonId == null || stream.addonId == addonId) }
+            .sameQualityFirst()?.let { return it }
+    }
+    if (addonId == null) return null
+    return candidates.firstOrNull { (stream, traits) ->
+        stream.addonId == addonId && traits.quality == playingTraits.quality
+    }?.first
+}
+
 /** The autoplay's rule for a source that can start on its own ([StreamAutoPlaySelector]). */
 internal fun StreamItem.isAutoPlayableWith(debrid: DebridSettings): Boolean {
     val stream = this

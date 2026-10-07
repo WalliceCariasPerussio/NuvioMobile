@@ -2,6 +2,7 @@ package com.nuvio.app.features.player
 
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.streams.SourceRanking
+import com.nuvio.app.features.streams.StreamBehaviorHints
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamLanguageUnknown
 import com.nuvio.app.features.streams.StreamQualityBucket
@@ -71,9 +72,29 @@ internal fun PlayerScreenRuntime.currentAudioLanguage(current: StreamItem?): Str
 internal fun PlayerScreenRuntime.currentAudioLanguageForFailover(): String? =
     currentAudioLanguage(currentSourceStream(PlayerStreamsRepository.sourceState.value.groups.flatMap { it.streams }))
 
-/** Languages for the next episode's autoplay: the one playing now, then the preferred ones. */
+/**
+ * The source playing, which the next episode keeps: itself when a source list has it, else what the
+ * player keeps of it (name, description, addon, binge group; a resumed saved link keeps only the name).
+ */
+internal fun PlayerScreenRuntime.playingStreamForNextEpisode(): StreamItem =
+    currentSourceStream(PlayerStreamsRepository.sourceState.value.groups.flatMap { it.streams })
+        ?: currentSourceStream(PlayerStreamsRepository.episodeStreamsState.value.groups.flatMap { it.streams })
+        ?: StreamItem(
+            name = activeStreamTitle,
+            description = activeStreamSubtitle,
+            addonName = activeProviderName,
+            addonId = activeProviderAddonId.orEmpty(),
+            behaviorHints = StreamBehaviorHints(bingeGroup = currentStreamBingeGroup, filename = activeTorrentFilename),
+        )
+
+/**
+ * Languages for the next episode's autoplay: the one playing now (the track's, or the source's when
+ * the track has no tag), then the preferred ones.
+ */
 internal fun PlayerScreenRuntime.nextEpisodeAudioLanguages(): List<String> =
-    (listOfNotNull(currentAudioLanguageForFailover()) + preferredAudioTargets(playerSettingsUiState, contentLanguage))
+    (listOfNotNull(currentAudioLanguageForFailover()) +
+        playingStreamForNextEpisode().streamTraits().audioLanguages +
+        preferredAudioTargets(playerSettingsUiState, contentLanguage))
         .distinct()
 
 // --- Audio "Todos" and quality panels ---------------------------------------------------------

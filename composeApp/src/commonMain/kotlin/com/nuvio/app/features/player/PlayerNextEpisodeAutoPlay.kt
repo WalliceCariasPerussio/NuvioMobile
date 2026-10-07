@@ -17,6 +17,8 @@ import com.nuvio.app.features.streams.StreamAutoPlaySelector
 import com.nuvio.app.features.streams.StreamAutoPlaySource
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.bucket
+import com.nuvio.app.features.streams.isAutoPlayableWith
+import com.nuvio.app.features.streams.selectContinuation
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -75,6 +77,8 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     preferredLanguages: List<String> = emptyList(),
     // Fork: the addon playing now, so the next episode keeps the same source when it can.
     preferredAddonId: String? = null,
+    // Fork: the source playing now; BEST_PREFERRED_AUDIO first keeps its release, audio and quality.
+    playingStream: StreamItem? = null,
 ): Job? {
     val nextVideoId = nextEpisodeInfo?.videoId ?: return null
     val nextVideo = allEpisodes.firstOrNull { video -> video.id == nextVideoId } ?: return null
@@ -189,7 +193,9 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
         }
 
         fun trySelectStream(streams: List<StreamItem>): StreamItem? =
-            StreamAutoPlaySelector.selectAutoPlayStream(
+            playingStream?.takeIf { effectiveMode == StreamAutoPlayMode.BEST_PREFERRED_AUDIO }?.let { playing ->
+                selectContinuation(streams.filter { it.isAutoPlayableWith(debridSettings) }, playing)
+            } ?: StreamAutoPlaySelector.selectAutoPlayStream(
                 streams = streams,
                 mode = effectiveMode,
                 regexPattern = effectiveRegex,
