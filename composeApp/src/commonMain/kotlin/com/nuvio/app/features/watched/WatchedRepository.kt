@@ -1090,6 +1090,39 @@ object WatchedRepository {
         }
     }
 
+    /**
+     * Re-sends Nuvio Sync watched marks whose push was never acknowledged; nothing else retries them.
+     * Tracker marks are left alone: a history add is not idempotent there and would duplicate plays.
+     */
+    internal suspend fun pushPendingToServer(profileId: Int): Boolean {
+        val authState = AuthRepository.state.value
+        if (authState !is AuthState.Authenticated || authState.isAnonymous) return true
+        if (ProfileRepository.activeProfileId != profileId) return false
+        ensureLoaded()
+        if (currentProfileId != profileId) return false
+        val operationGeneration = profileGeneration
+        val pending = itemsStore.read { nuvioItems, _, dirtyNuvioKeys, _ ->
+            dirtyNuvioKeys.mapNotNull(nuvioItems::get)
+        }.filterNot(ServerWatched::isServerItem)
+        if (pending.isEmpty()) return true
+
+        return try {
+            syncAdapter.push(profileId = profileId, items = pending)
+            recordSuccessfulPush(
+                profileId = profileId,
+                operationGeneration = operationGeneration,
+                items = pending,
+            )
+            log.i { "Pending watched items resent profile=$profileId count=${pending.size}" }
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.w(error) { "Failed to resend pending watched items profile=$profileId" }
+            false
+        }
+    }
+
     private fun publish() {
         val (nuvioItems, providerItems) = itemsStore.read { storedNuvioItems, storedProviderItems, _, _ ->
             storedNuvioItems.values.toList() to storedProviderItems.mapValues { (_, itemsByKey) ->

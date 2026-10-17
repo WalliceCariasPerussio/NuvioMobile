@@ -288,6 +288,7 @@ object SyncManager {
         syncProviderCredentials = { profileId -> ProviderCredentialSync.syncFromRemote(profileId) },
         pullLibrary = { profileId -> LibraryRepository.pullFromServer(profileId) },
         refreshActiveWatchSource = { profileId ->
+            pushPendingWatchActivity(profileId)
             val result = WatchProgressSourceCoordinator.refreshActiveSource(profileId = profileId, force = true)
             check(result.succeeded) {
                 "Active watch source refresh was incomplete: " +
@@ -301,6 +302,7 @@ object SyncManager {
     private val profileActivitySyncOperations = ProfileActivitySyncOperations(
         pullLibrary = { profileId -> LibraryRepository.pullFromServer(profileId) },
         pullWatchActivity = { profileId ->
+            pushPendingWatchActivity(profileId)
             val result = WatchProgressSourceCoordinator.refreshActiveSource(profileId = profileId, force = false)
             check(result.succeeded) {
                 "Active watch source refresh was incomplete: " +

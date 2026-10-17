@@ -24,6 +24,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -126,8 +127,14 @@ object TraktProgressRepository {
                 runCatching {
                     refreshIfActivityChanged()
                 }.onFailure { error ->
-                    if (error is CancellationException) throw error
-                    log.w { "Periodic Trakt activity refresh failed: ${error.message}" }
+                    if (error is CancellationException) {
+                        // A forced refresh or profile change cancels the shared refresh this poll joined.
+                        // Only stop polling when the poller itself is cancelled, or the loop dies for the session.
+                        ensureActive()
+                        log.d { "Periodic Trakt activity refresh superseded" }
+                    } else {
+                        log.w { "Periodic Trakt activity refresh failed: ${error.message}" }
+                    }
                 }
                 resetRefreshInterval()
             }

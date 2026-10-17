@@ -189,6 +189,10 @@ internal fun LazyListScope.trackingSettingsContent(
             }
         }
     }
+
+    item {
+        TrackingSyncNowSection(isTablet = isTablet)
+    }
 }
 
 private enum class TrackingDataPicker {

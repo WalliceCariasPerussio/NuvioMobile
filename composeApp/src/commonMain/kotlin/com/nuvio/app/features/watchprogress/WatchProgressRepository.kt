@@ -1432,6 +1432,82 @@ object WatchProgressRepository {
         }
     }
 
+    /**
+     * Re-sends progress whose Nuvio Sync push was never acknowledged (offline, app closed mid-push).
+     * Nothing else retries those rows, so other devices would never see them.
+     */
+    internal suspend fun pushPendingToServer(profileId: Int): Boolean {
+        val authState = AuthRepository.state.value
+        if (authState !is AuthState.Authenticated || authState.isAnonymous) return true
+        ensureLoaded()
+        val operationGeneration = activeOperationGeneration(profileId) ?: return false
+
+        return nuvioPullMutex.withLock {
+            val pendingByKey = synchronized(entriesLock) {
+                dirtyProgressKeys.mapNotNull { key -> entriesByProgressKey[key]?.let { entry -> key to entry } }
+            }
+                .filterNot { (_, entry) -> ServerItemRef.isServerId(entry.parentMetaId) }
+                .toMap()
+            if (pendingByKey.isEmpty()) return@withLock true
+
+            try {
+                val plan = planPendingProgressPush(
+                    pendingEntries = pendingByKey,
+                    serverRecords = syncAdapter.pull(profileId = profileId),
+                )
+                if (!isActiveOperation(profileId, operationGeneration)) return@withLock false
+
+                var localStateChanged = false
+                val toSend = synchronized(entriesLock) {
+                    plan.alreadySyncedKeys.forEach { key ->
+                        if (entriesByProgressKey[key] == pendingByKey[key] && dirtyProgressKeys.remove(key)) {
+                            localStateChanged = true
+                        }
+                    }
+                    plan.toPush.mapNotNull { (localKey, entry) ->
+                        // Played again meanwhile: that newer row already has its own push.
+                        if (entriesByProgressKey[localKey] != pendingByKey[localKey]) return@mapNotNull null
+                        val sendKey = entry.resolvedProgressKey()
+                        if (sendKey == localKey) return@mapNotNull entry
+
+                        // Adopt the server's key for this content, as a snapshot pull would, so the
+                        // acknowledgement and later delta events land on the same local row.
+                        localStateChanged = true
+                        entriesByProgressKey.remove(localKey)
+                        dirtyProgressKeys.remove(localKey)
+                        val existing = entriesByProgressKey[sendKey]
+                        if (existing != null && !entry.isFresherThan(existing)) return@mapNotNull null
+                        entriesByProgressKey[sendKey] = entry
+                        dirtyProgressKeys += sendKey
+                        entry
+                    }
+                }
+                if (localStateChanged) {
+                    publish()
+                    persist()
+                }
+                if (toSend.isNotEmpty()) {
+                    syncAdapter.push(profileId = profileId, entries = toSend)
+                    recordSuccessfulPush(
+                        profileId = profileId,
+                        operationGeneration = operationGeneration,
+                        entries = toSend,
+                    )
+                }
+                log.i {
+                    "Pending watch progress resent profile=$profileId pushed=${toSend.size} " +
+                        "alreadySynced=${plan.alreadySyncedKeys.size}"
+                }
+                true
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.w(error) { "Failed to resend pending watch progress profile=$profileId" }
+                false
+            }
+        }
+    }
+
     private fun publish() {
         val entries = currentEntries()
         val sortedEntries = entries.sortedByDescending { it.lastUpdatedEpochMs }
