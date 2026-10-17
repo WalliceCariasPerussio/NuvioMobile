@@ -286,6 +286,21 @@ object NuvioToTraktSyncManager {
     private val jobLock = SynchronizedObject()
     private var job: Job? = null
     private data class SentPause(val percent: Double, val sentAtEpochMs: Long)
+    private class TraktHistoryRejected(message: String) : Exception(message)
+
+    private fun markHistorySent(profileId: Int, items: List<WatchedItem>) {
+        val sentAt = TraktPlatformClock.nowEpochMs()
+        synchronized(jobLock) {
+            items.forEach { item -> sentHistoryAt["$profileId|${historyIdentity(item)}"] = sentAt }
+        }
+    }
+
+    private fun unmarkHistorySent(profileId: Int, items: List<WatchedItem>) {
+        synchronized(jobLock) {
+            items.forEach { item -> sentHistoryAt.remove("$profileId|${historyIdentity(item)}") }
+        }
+    }
+
     private class RecentlySent(val pausedPercentByKey: Map<String, Double>, val historyIdentities: Set<String>)
 
     // Keyed by "profileId|item"; only kept for this app session.
@@ -409,22 +424,30 @@ object NuvioToTraktSyncManager {
 
     private suspend fun sendPlan(profileId: Int, plan: NuvioToTraktPlan): NuvioToTraktUiState {
         check(isAvailable()) { "Nuvio account and Trakt must both be connected" }
-        // The plan was made when the dialog opened. Another device may have logged some of these since, and a
-        // history add is not idempotent, so what Trakt holds now decides what is still sent.
-        val alreadyThere = pullTraktWatched(profileId).keys
-        val history = plan.history.filterNot { item ->
-            watchedItemKeys(item.type, item.id, item.season, item.episode).any(alreadyThere::contains)
-        }
         // Sent straight to Trakt, without the app's usual retry under a remapped episode number: that retry
         // adds a play the comparison cannot recognise afterwards, so the next run would add another one.
-        history.chunked(NUVIO_TO_TRAKT_HISTORY_CHUNK).forEachIndexed { index, chunk ->
+        val history = mutableListOf<WatchedItem>()
+        plan.history.chunked(NUVIO_TO_TRAKT_HISTORY_CHUNK).forEachIndexed { index, chunk ->
             if (index > 0) delay(NUVIO_TO_TRAKT_POST_SPACING_MS)
-            val added = addToTraktHistory(chunk)
-            log.i { "Trakt history add profile=$profileId sent=${chunk.size} added=$added" }
-            val sentAt = TraktPlatformClock.nowEpochMs()
-            synchronized(jobLock) {
-                chunk.forEach { item -> sentHistoryAt["$profileId|${historyIdentity(item)}"] = sentAt }
+            // The plan was made when the dialog opened. Another device may have logged some of these since, and a
+            // history add is not idempotent, so what Trakt holds right before each batch decides what goes in it.
+            val alreadyThere = pullTraktWatched(profileId).keys
+            val toSend = chunk.filterNot { item ->
+                watchedItemKeys(item.type, item.id, item.season, item.episode).any(alreadyThere::contains)
             }
+            if (toSend.isEmpty()) return@forEachIndexed
+            // Marked before the request: if it times out after Trakt processed it, a re-run must not add it again.
+            markHistorySent(profileId, toSend)
+            val added = try {
+                addToTraktHistory(toSend)
+            } catch (error: TraktHistoryRejected) {
+                // Trakt answered with an error, so nothing was recorded and the batch can be offered again.
+                unmarkHistorySent(profileId, toSend)
+                throw error
+            }
+            log.i { "Trakt history add profile=$profileId sent=${toSend.size} added=$added" }
+            if (added == 0) unmarkHistorySent(profileId, toSend)
+            history += toSend
         }
 
         var inProgressSent = 0
@@ -525,7 +548,7 @@ object NuvioToTraktSyncManager {
             ) + headers,
             body = body,
         )
-        check(response.status in 200..299) { "Trakt history add failed: HTTP ${response.status}" }
+        if (response.status !in 200..299) throw TraktHistoryRejected("Trakt history add failed: HTTP ${response.status}")
         val added = json.decodeFromString<TraktHistoryResponseDto>(response.body).added
         return (added?.movies ?: 0) + (added?.episodes ?: 0)
     }
