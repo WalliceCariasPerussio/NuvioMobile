@@ -89,7 +89,7 @@ class SyncNowManagerTest {
     }
 
     @Test
-    fun `watched history failure alone still rebuilds Continue Watching`() = runBlocking {
+    fun `watched history failure alone keeps the Continue Watching cache`() = runBlocking {
         val events = mutableListOf<String>()
 
         val failedSteps = runSyncNow(
@@ -102,7 +102,7 @@ class SyncNowManagerTest {
         )
 
         assertEquals(setOf(SyncNowStep.WatchedHistory), failedSteps)
-        assertEquals("rebuild:1", events.last())
+        assertEquals(listOf("library:1", "provider:1", "source:1"), events)
     }
 
     @Test

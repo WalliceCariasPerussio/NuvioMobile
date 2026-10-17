@@ -97,8 +97,9 @@ internal suspend fun runSyncNow(
     }
     if (!watchedHistoryRefreshed) failedSteps += SyncNowStep.WatchedHistory
 
-    // Offline the cache is all Home has for posters and next-up episodes, so keep it on failure.
-    if (SyncNowStep.WatchProgress !in failedSteps) {
+    // Offline the cache is all Home has for posters and next-up episodes, so keep it unless both reads worked:
+    // rebuilding from a progress list without its history would show stale next-up episodes.
+    if (SyncNowStep.WatchProgress !in failedSteps && SyncNowStep.WatchedHistory !in failedSteps) {
         operations.rebuildContinueWatching(profileId)
     }
     return failedSteps

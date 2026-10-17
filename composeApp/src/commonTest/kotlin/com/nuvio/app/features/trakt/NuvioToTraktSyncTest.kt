@@ -257,6 +257,16 @@ class NuvioToTraktSyncTest {
     }
 
     @Test
+    fun `watched dates are written in the UTC form Trakt expects`() {
+        assertEquals("1970-01-01T00:00:00.000Z", epochMsToUtcIso(0L))
+        assertEquals("2026-10-07T18:20:00.000Z", epochMsToUtcIso(1_791_397_200_000L))
+        assertEquals("2026-10-01T23:39:00.000Z", epochMsToUtcIso(1_790_897_940_000L))
+        // A leap day and a non-zero millisecond part.
+        assertEquals("2000-02-29T00:00:00.123Z", epochMsToUtcIso(951_782_400_123L))
+        assertEquals("1970-01-01T00:00:00.000Z", epochMsToUtcIso(-5L))
+    }
+
+    @Test
     fun `only the most recent in-progress rows are kept`() {
         val plan = planNuvioToTraktSync(
             nuvioWatched = emptyList(),

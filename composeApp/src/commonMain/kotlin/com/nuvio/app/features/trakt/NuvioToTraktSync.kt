@@ -105,6 +105,27 @@ internal fun normalizeTraktComparableId(id: String): String {
     }
 }
 
+/** UTC timestamp in the form Trakt expects, e.g. `2026-10-17T01:47:00.000Z`. */
+internal fun epochMsToUtcIso(epochMs: Long): String {
+    val ms = epochMs.coerceAtLeast(0L)
+    val totalSeconds = ms / 1_000L
+    val millis = (ms % 1_000L).toInt()
+    val secondOfDay = (totalSeconds % 86_400L).toInt()
+    // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm), valid for every date after 1970.
+    val z = totalSeconds / 86_400L + 719_468L
+    val era = z / 146_097L
+    val dayOfEra = z - era * 146_097L
+    val yearOfEra = (dayOfEra - dayOfEra / 1_460L + dayOfEra / 36_524L - dayOfEra / 146_096L) / 365L
+    val dayOfYear = dayOfEra - (365L * yearOfEra + yearOfEra / 4L - yearOfEra / 100L)
+    val shiftedMonth = (5L * dayOfYear + 2L) / 153L
+    val day = (dayOfYear - (153L * shiftedMonth + 2L) / 5L + 1L).toInt()
+    val month = (if (shiftedMonth < 10L) shiftedMonth + 3L else shiftedMonth - 9L).toInt()
+    val year = (yearOfEra + era * 400L + if (month <= 2) 1L else 0L).toInt()
+    fun Int.pad(width: Int) = toString().padStart(width, '0')
+    return "${year.pad(4)}-${month.pad(2)}-${day.pad(2)}T" +
+        "${(secondOfDay / 3_600).pad(2)}:${(secondOfDay / 60 % 60).pad(2)}:${(secondOfDay % 60).pad(2)}.${millis.pad(3)}Z"
+}
+
 /** Identifies one paused movie or episode, matching any id form of the title. */
 internal fun pausedProgressKey(contentId: String, season: Int?, episode: Int?): String =
     "${contentId.trim()}:${season ?: -1}:${episode ?: -1}"
@@ -388,9 +409,18 @@ object NuvioToTraktSyncManager {
 
     private suspend fun sendPlan(profileId: Int, plan: NuvioToTraktPlan): NuvioToTraktUiState {
         check(isAvailable()) { "Nuvio account and Trakt must both be connected" }
-        plan.history.chunked(NUVIO_TO_TRAKT_HISTORY_CHUNK).forEachIndexed { index, chunk ->
+        // The plan was made when the dialog opened. Another device may have logged some of these since, and a
+        // history add is not idempotent, so what Trakt holds now decides what is still sent.
+        val alreadyThere = pullTraktWatched(profileId).keys
+        val history = plan.history.filterNot { item ->
+            watchedItemKeys(item.type, item.id, item.season, item.episode).any(alreadyThere::contains)
+        }
+        // Sent straight to Trakt, without the app's usual retry under a remapped episode number: that retry
+        // adds a play the comparison cannot recognise afterwards, so the next run would add another one.
+        history.chunked(NUVIO_TO_TRAKT_HISTORY_CHUNK).forEachIndexed { index, chunk ->
             if (index > 0) delay(NUVIO_TO_TRAKT_POST_SPACING_MS)
-            TraktWatchedSyncAdapter.push(profileId = profileId, items = chunk)
+            val added = addToTraktHistory(chunk)
+            log.i { "Trakt history add profile=$profileId sent=${chunk.size} added=$added" }
             val sentAt = TraktPlatformClock.nowEpochMs()
             synchronized(jobLock) {
                 chunk.forEach { item -> sentHistoryAt["$profileId|${historyIdentity(item)}"] = sentAt }
@@ -432,21 +462,72 @@ object NuvioToTraktSyncManager {
 
         // Trakt answers adds without per-item detail; re-reading its history shows what actually landed.
         val confirmedKeys = pullTraktWatched(profileId).keys
-        val historyConfirmed = plan.history.count { item ->
+        val historyConfirmed = history.count { item ->
             watchedItemKeys(item.type, item.id, item.season, item.episode).any(confirmedKeys::contains)
         }
         log.i {
-            "Nuvio to Trakt sent profile=$profileId history=${plan.history.size} confirmed=$historyConfirmed " +
+            "Nuvio to Trakt sent profile=$profileId history=${history.size} confirmed=$historyConfirmed " +
                 "inProgress=$inProgressSent library=${plan.library.size} libraryConfirmed=$libraryAdded"
         }
         SyncNowManager.syncNow(profileId)
         return NuvioToTraktUiState.Done(
-            historySent = plan.history.size,
+            historySent = history.size,
             historyConfirmed = historyConfirmed,
             inProgressSent = inProgressSent,
             librarySent = libraryAdded,
             skippedUnsupportedIds = plan.skippedUnsupportedIds,
         )
+    }
+
+    /** Adds watched items to Trakt history with their original date; returns how many Trakt recorded. */
+    private suspend fun addToTraktHistory(items: List<WatchedItem>): Int {
+        val headers = TraktAuthRepository.authorizedHeaders() ?: error("Trakt is not connected")
+        fun WatchedItem.historyIds(): TraktWatchlistIdsDto {
+            val parsed = parseTraktContentIds(normalizeTraktComparableId(id))
+            return TraktWatchlistIdsDto(imdb = parsed.imdb, tmdb = parsed.tmdb, trakt = parsed.trakt)
+        }
+        val (movieItems, episodeItems) = items.partition { item -> item.isMovie() }
+        val shows = episodeItems.groupBy { item -> normalizeTraktComparableId(item.id) }.values.map { episodes ->
+            TraktHistoryShowRequestDto(
+                title = episodes.first().name.takeIf { name -> name.isNotBlank() && name != episodes.first().id },
+                ids = episodes.first().historyIds(),
+                seasons = episodes.groupBy { item -> item.season }.mapNotNull { (season, inSeason) ->
+                    season ?: return@mapNotNull null
+                    TraktHistorySeasonRequestDto(
+                        number = season,
+                        episodes = inSeason.mapNotNull { item ->
+                            item.episode?.let { number ->
+                                TraktHistoryEpisodeRequestDto(number = number, watchedAt = epochMsToUtcIso(item.markedAtEpochMs))
+                            }
+                        },
+                    )
+                },
+            )
+        }
+        val body = writeJson.encodeToString(
+            TraktHistoryRequestDto(
+                movies = movieItems.map { item ->
+                    TraktHistoryMovieRequestDto(
+                        title = item.name.takeIf { name -> name.isNotBlank() && name != item.id },
+                        ids = item.historyIds(),
+                        watchedAt = epochMsToUtcIso(item.markedAtEpochMs),
+                    )
+                }.takeIf { it.isNotEmpty() },
+                shows = shows.takeIf { it.isNotEmpty() },
+            ),
+        )
+        val response = httpRequestRaw(
+            method = "POST",
+            url = "https://api.trakt.tv/sync/history",
+            headers = mapOf(
+                "Accept" to "application/json",
+                "Content-Type" to "application/json",
+            ) + headers,
+            body = body,
+        )
+        check(response.status in 200..299) { "Trakt history add failed: HTTP ${response.status}" }
+        val added = json.decodeFromString<TraktHistoryResponseDto>(response.body).added
+        return (added?.movies ?: 0) + (added?.episodes ?: 0)
     }
 
     /** Library ids Trakt already holds, across the watchlist and personal lists. */
@@ -553,6 +634,49 @@ object NuvioToTraktSyncManager {
         )
     }
 }
+
+@Serializable
+private data class TraktHistoryRequestDto(
+    val movies: List<TraktHistoryMovieRequestDto>? = null,
+    val shows: List<TraktHistoryShowRequestDto>? = null,
+)
+
+@Serializable
+private data class TraktHistoryMovieRequestDto(
+    val title: String? = null,
+    val ids: TraktWatchlistIdsDto,
+    @SerialName("watched_at") val watchedAt: String,
+)
+
+@Serializable
+private data class TraktHistoryShowRequestDto(
+    val title: String? = null,
+    val ids: TraktWatchlistIdsDto,
+    val seasons: List<TraktHistorySeasonRequestDto>,
+)
+
+@Serializable
+private data class TraktHistorySeasonRequestDto(
+    val number: Int,
+    val episodes: List<TraktHistoryEpisodeRequestDto>,
+)
+
+@Serializable
+private data class TraktHistoryEpisodeRequestDto(
+    val number: Int,
+    @SerialName("watched_at") val watchedAt: String,
+)
+
+@Serializable
+private data class TraktHistoryResponseDto(
+    val added: TraktHistoryCountsDto? = null,
+)
+
+@Serializable
+private data class TraktHistoryCountsDto(
+    val movies: Int = 0,
+    val episodes: Int = 0,
+)
 
 @Serializable
 private data class TraktWatchlistAddRequestDto(
