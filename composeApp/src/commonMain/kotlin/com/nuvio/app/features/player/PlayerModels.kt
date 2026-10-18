@@ -50,6 +50,8 @@ data class PlayerLaunch(
     // size it declares (tells an addon's short error clip from a short episode).
     val manualSourcePick: Boolean = false,
     val sourceVideoSize: Long? = null,
+    val sourceFilename: String? = null,
+    val stream: com.nuvio.app.features.streams.StreamItem? = null,
 )
 
 object PlayerLaunchStore {
