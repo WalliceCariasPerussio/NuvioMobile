@@ -1,0 +1,42 @@
+{
+  "name": "Nuvio (fork)",
+  "subtitle": "A free, open-source media app for your phone, your desktop, and the TV you already own.",
+  "description": "A free, open-source media app for your phone, your desktop, and the TV you already own.\n\nBring your own sources. Nuvio turns them into a library with artwork, ratings, subtitles, and your place saved on every screen.",
+  "website": "https://nuvio.tv",
+  "iconURL": "https://raw.githubusercontent.com/NuvioMedia/NuvioMobile/0.4.11/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+  "tintColor": "#1E88E5",
+  "featuredApps": [
+    "com.nuvio.media"
+  ],
+  "apps": [
+    {
+      "name": "Nuvio",
+      "bundleIdentifier": "com.nuvio.media",
+      "developerName": "NuvioMedia",
+      "subtitle": "A free, open-source media app for your phone, your desktop, and the TV you already own.",
+      "localizedDescription": "A free, open-source media app for your phone, your desktop, and the TV you already own.\n\nBring your own sources. Nuvio turns them into a library with artwork, ratings, subtitles, and your place saved on every screen.",
+      "iconURL": "https://raw.githubusercontent.com/NuvioMedia/NuvioMobile/0.4.11/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "tintColor": "#1E88E5",
+      "category": "entertainment",
+      "versions": [
+        {
+          "version": "0.6.1",
+          "buildVersion": "144003",
+          "date": "2026-10-18T23:41:37Z",
+          "localizedDescription": "Fork build 144003 of cf903da7\n\nAddons: botão Enviar copia o addon instalado para outros perfis da conta\n",
+          "downloadURL": "https://github.com/WalliceCariasPerussio/NuvioMobile/releases/download/ios-0.6.1-144003/nuvio-0.6.1-144003-fork.ipa",
+          "size": 68889053,
+          "sha256": "fba762279a0a6f225d12edd123ee5b6ce45065ddc99cdca6c46b6265c74bed77",
+          "minOSVersion": "16.1"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSLocalNetworkUsageDescription": "Nuvio connects to media servers on your local network."
+        }
+      }
+    }
+  ],
+  "news": []
+}
