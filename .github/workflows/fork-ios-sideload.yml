@@ -66,8 +66,9 @@ jobs:
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
           sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
 
-      # Same marketing version as upstream, build number <upstream build>.<run number>, so the
-      # sideload source always offers a newer build than the installed one.
+      # Same marketing version as upstream, build number <upstream build> * 1000 + <run number>, so the
+      # sideload source always offers a newer build than the installed one. It has to stay an integer:
+      # the Gradle build also reads CURRENT_PROJECT_VERSION as the Android versionCode.
       - name: Stamp fork build number
         id: version
         run: |
@@ -78,7 +79,7 @@ jobs:
             echo "Could not read the version from ${version_file}." >&2
             exit 1
           fi
-          build="${base_build}.${GITHUB_RUN_NUMBER}"
+          build="$(( base_build * 1000 + GITHUB_RUN_NUMBER ))"
           sed -i '' -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*).*/\1${build}/" "${version_file}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "build=${build}" >> "${GITHUB_OUTPUT}"
