@@ -189,7 +189,7 @@ internal fun planNuvioToTraktSync(
         // sending it again would only add another play.
         if (identity in recentlySentHistory) return@forEach
         // A watched mark carries the title; keep it over the completed-progress copy.
-        historyByIdentity.putIfAbsent(identity, item)
+        historyByIdentity.getOrPut(identity) { item }
     }
 
     val latestByContentId = traktLatestActivityByContentId.toMutableMap()
