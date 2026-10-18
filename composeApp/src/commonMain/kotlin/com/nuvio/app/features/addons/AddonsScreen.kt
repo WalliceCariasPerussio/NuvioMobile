@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Delete
@@ -55,6 +56,7 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioSurfaceCard
+import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -96,6 +98,10 @@ internal fun AddonsSettingsPageContent(
     var addonPendingDeletionUrl by rememberSaveable { mutableStateOf<String?>(null) }
     val enterAddonUrlMessage = stringResource(Res.string.addons_error_enter_url)
     val usePersonalMediaCopy = AppFeaturePolicy.personalMediaAddonCopyEnabled
+    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
+    val sendTargets = remember(profileState) { AddonProfileTransfer.eligibleTargets(profileState) }
+    var addonToSendUrl by remember { mutableStateOf<String?>(null) }
+    var sendResultMessage by remember { mutableStateOf<String?>(null) }
 
     val overview = remember(uiState.addons) { uiState.addons.toOverview() }
 
@@ -180,10 +186,39 @@ internal fun AddonsSettingsPageContent(
                     } else {
                         null
                     },
+                    onSendClick = if (sendTargets.isNotEmpty()) {
+                        { addonToSendUrl = addon.manifestUrl }
+                    } else {
+                        null
+                    },
                     onDeleteClick = { addonPendingDeletionUrl = addon.manifestUrl },
                 )
             }
         }
+    }
+
+    val addonToSend = addonToSendUrl?.let { url -> uiState.addons.firstOrNull { it.manifestUrl == url } }
+    if (addonToSend != null && sendTargets.isNotEmpty()) {
+        AddonSendToProfileDialog(
+            addon = addonToSend,
+            targets = sendTargets,
+            onDismiss = { addonToSendUrl = null },
+            onSent = { message ->
+                addonToSendUrl = null
+                sendResultMessage = message
+            },
+        )
+    }
+
+    sendResultMessage?.let { message ->
+        NuvioStatusModal(
+            title = stringResource(Res.string.addon_send_done_title),
+            message = message,
+            isVisible = true,
+            confirmText = stringResource(Res.string.action_done),
+            onConfirm = { sendResultMessage = null },
+            onDismiss = { sendResultMessage = null },
+        )
     }
 
     val pendingDeletionUrl = addonPendingDeletionUrl
@@ -415,6 +450,7 @@ private fun InstalledAddonCard(
     onRefreshClick: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
     onConfigureClick: (() -> Unit)?,
+    onSendClick: (() -> Unit)?,
     onDeleteClick: () -> Unit,
 ) {
     val manifest = addon.manifest
@@ -495,6 +531,14 @@ private fun InstalledAddonCard(
                     contentDescription = stringResource(Res.string.addons_configure),
                     tint = MaterialTheme.colorScheme.tertiary,
                     onClick = onConfigure,
+                )
+            }
+            onSendClick?.let { onSend ->
+                NuvioIconActionButton(
+                    icon = Icons.AutoMirrored.Rounded.Send,
+                    contentDescription = stringResource(Res.string.addon_send_button),
+                    tint = MaterialTheme.colorScheme.primary,
+                    onClick = onSend,
                 )
             }
             NuvioIconActionButton(
