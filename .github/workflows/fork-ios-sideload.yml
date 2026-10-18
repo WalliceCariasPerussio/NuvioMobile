@@ -1,0 +1,186 @@
+name: Fork iOS Sideload
+
+# Fork only: builds the unsigned full Release IPA, publishes it as a prerelease on this fork and
+# rewrites the SideStore/AltStore source on the `sideload` branch, so the phone sees the update:
+# https://raw.githubusercontent.com/WalliceCariasPerussio/NuvioMobile/sideload/store.json
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-ios-sideload
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned full Release IPA
+    runs-on: macos-26
+    timeout-minutes: 120
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      IOS_CONFIGURATION: Release
+      KOTLIN_DAEMON_JVMARGS: -Xmx2048M
+      NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
+      RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache Kotlin Native
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            konan-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Verify Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Configure runtime properties
+        run: |
+          if [[ -z "${RELEASE_PROPERTIES_BASE64}" ]]; then
+            echo "Missing NUVIO_LOCAL_PROPERTIES_BASE64: without it login and sync do not work." >&2
+            exit 1
+          fi
+          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+
+      # Same marketing version as upstream, build number <upstream build>.<run number>, so the
+      # sideload source always offers a newer build than the installed one.
+      - name: Stamp fork build number
+        id: version
+        run: |
+          version_file=iosApp/Configuration/Version.xcconfig
+          version="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/p' "${version_file}" | head -n 1)"
+          base_build="$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*([0-9]+).*$/\1/p' "${version_file}" | head -n 1)"
+          if [[ -z "${version}" || -z "${base_build}" ]]; then
+            echo "Could not read the version from ${version_file}." >&2
+            exit 1
+          fi
+          build="${base_build}.${GITHUB_RUN_NUMBER}"
+          sed -i '' -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*).*/\1${build}/" "${version_file}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "build=${build}" >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare iOS dependencies
+        run: ./scripts/prepare-ios-dependencies.sh
+
+      - name: Build unsigned full Release IPA
+        run: ./scripts/build-ios-ipa.sh "${{ steps.version.outputs.version }}"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-fork-ios-${{ steps.version.outputs.build }}
+          path: build/ios-ipa/*-full-release.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish release and sideload source
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.build.outputs.version }}
+      BUILD: ${{ needs.build.outputs.build }}
+      TAG: ios-${{ needs.build.outputs.version }}-${{ needs.build.outputs.build }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Download IPA
+        uses: actions/download-artifact@v8
+        with:
+          name: nuvio-fork-ios-${{ needs.build.outputs.build }}
+          path: release-assets
+
+      - name: Create prerelease
+        run: |
+          ipa_source="$(find release-assets -maxdepth 1 -type f -name '*.ipa' -print -quit)"
+          if [[ -z "${ipa_source}" ]]; then
+            echo "No IPA was downloaded." >&2
+            exit 1
+          fi
+          ipa_path="release-assets/nuvio-${VERSION}-${BUILD}-fork.ipa"
+          mv "${ipa_source}" "${ipa_path}"
+          echo "IPA_PATH=${ipa_path}" >> "${GITHUB_ENV}"
+
+          {
+            echo "Fork build ${BUILD} of ${GITHUB_SHA::8}"
+            echo
+            git log -1 --format='%s'
+          } > "${RUNNER_TEMP}/release-notes.md"
+
+          # A re-run keeps the run number, so it would collide with its own earlier release.
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release delete "${TAG}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
+          fi
+          gh release create "${TAG}" "${ipa_path}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "iOS ${VERSION} (${BUILD})" \
+            --notes-file "${RUNNER_TEMP}/release-notes.md" \
+            --prerelease \
+            --latest=false
+
+      - name: Write sideload source
+        run: |
+          release_json="${RUNNER_TEMP}/release.json"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" > "${release_json}"
+          ipa_name="$(basename "${IPA_PATH}")"
+          download_url="$(jq -r --arg name "${ipa_name}" '.assets[] | select(.name == $name) | .browser_download_url' "${release_json}")"
+          release_date="$(jq -r '.published_at // empty' "${release_json}")"
+
+          jq '.name = "Nuvio (fork)" | .news = [] | .apps[0].versions = []' store.json > "${RUNNER_TEMP}/template.json"
+          mkdir -p sideload-source
+          python3 scripts/update-store-source.py \
+            --source "${RUNNER_TEMP}/template.json" \
+            --ipa "${IPA_PATH}" \
+            --release-notes "${RUNNER_TEMP}/release-notes.md" \
+            --release-version "${VERSION}" \
+            --release-date "${release_date}" \
+            --download-url "${download_url}" \
+            --output sideload-source/store.json
+
+      - name: Push sideload branch
+        working-directory: sideload-source
+        run: |
+          git init -q -b sideload
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add store.json
+          git commit -q -m "Sideload source: ${VERSION} (${BUILD})"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/sideload
+
+      - name: Delete old fork IPA releases
+        run: |
+          gh release list --repo "${GITHUB_REPOSITORY}" --limit 1000 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("ios-"))] | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' \
+            | while read -r old_tag; do
+                gh release delete "${old_tag}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
+              done
