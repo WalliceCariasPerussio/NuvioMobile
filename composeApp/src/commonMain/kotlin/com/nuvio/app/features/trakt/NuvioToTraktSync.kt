@@ -286,6 +286,7 @@ object NuvioToTraktSyncManager {
     private val jobLock = SynchronizedObject()
     private var job: Job? = null
     private data class SentPause(val percent: Double, val sentAtEpochMs: Long)
+    /** A 4xx from Trakt: it recorded nothing, so the batch can be offered again. */
     private class TraktHistoryRejected(message: String) : Exception(message)
 
     private fun markHistorySent(profileId: Int, items: List<WatchedItem>) {
@@ -436,12 +437,11 @@ object NuvioToTraktSyncManager {
                 watchedItemKeys(item.type, item.id, item.season, item.episode).any(alreadyThere::contains)
             }
             if (toSend.isEmpty()) return@forEachIndexed
-            // Marked before the request: if it times out after Trakt processed it, a re-run must not add it again.
-            markHistorySent(profileId, toSend)
             val added = try {
-                addToTraktHistory(toSend)
+                // Marked as the request goes out: if it times out after Trakt processed it, a re-run must not add
+                // it again. Not before: a batch that never left (no token) stays on offer.
+                addToTraktHistory(toSend, onSending = { markHistorySent(profileId, toSend) })
             } catch (error: TraktHistoryRejected) {
-                // Trakt answered with an error, so nothing was recorded and the batch can be offered again.
                 unmarkHistorySent(profileId, toSend)
                 throw error
             }
@@ -502,8 +502,11 @@ object NuvioToTraktSyncManager {
         )
     }
 
-    /** Adds watched items to Trakt history with their original date; returns how many Trakt recorded. */
-    private suspend fun addToTraktHistory(items: List<WatchedItem>): Int {
+    /**
+     * Adds watched items to Trakt history with their original date; returns how many Trakt recorded.
+     * [onSending] runs right before the request leaves, once nothing can stop it but the network.
+     */
+    private suspend fun addToTraktHistory(items: List<WatchedItem>, onSending: () -> Unit): Int {
         val headers = TraktAuthRepository.authorizedHeaders() ?: error("Trakt is not connected")
         fun WatchedItem.historyIds(): TraktWatchlistIdsDto {
             val parsed = parseTraktContentIds(normalizeTraktComparableId(id))
@@ -539,6 +542,7 @@ object NuvioToTraktSyncManager {
                 shows = shows.takeIf { it.isNotEmpty() },
             ),
         )
+        onSending()
         val response = httpRequestRaw(
             method = "POST",
             url = "https://api.trakt.tv/sync/history",
@@ -548,7 +552,9 @@ object NuvioToTraktSyncManager {
             ) + headers,
             body = body,
         )
-        if (response.status !in 200..299) throw TraktHistoryRejected("Trakt history add failed: HTTP ${response.status}")
+        if (response.status in 400..499) throw TraktHistoryRejected("Trakt history add rejected: HTTP ${response.status}")
+        // A 5xx (or a gateway's 52x) can come after Trakt recorded the batch: it stays marked as maybe sent.
+        check(response.status in 200..299) { "Trakt history add failed: HTTP ${response.status}" }
         val added = json.decodeFromString<TraktHistoryResponseDto>(response.body).added
         return (added?.movies ?: 0) + (added?.episodes ?: 0)
     }
