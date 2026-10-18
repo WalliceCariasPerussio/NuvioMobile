@@ -198,6 +198,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                             return@PlatformPlayerSurface
                         }
                         if (message != null && tryAutoSourceFailover(message)) return@PlatformPlayerSurface // fork
+                        if (message != null && offerOtherSources(stalled = false)) return@PlatformPlayerSurface // fork
                         errorMessage = message
                         if (message != null) {
                             scrubbingPositionMs = null
