@@ -446,6 +446,8 @@ object NuvioToTraktSyncManager {
                 throw error
             }
             log.i { "Trakt history add profile=$profileId sent=${toSend.size} added=$added" }
+            // Trakt said it recorded none of them (all not found): nothing to guard against. An answer without
+            // the counts says nothing, so the batch stays marked.
             if (added == 0) unmarkHistorySent(profileId, toSend)
             history += toSend
         }
@@ -503,10 +505,11 @@ object NuvioToTraktSyncManager {
     }
 
     /**
-     * Adds watched items to Trakt history with their original date; returns how many Trakt recorded.
-     * [onSending] runs right before the request leaves, once nothing can stop it but the network.
+     * Adds watched items to Trakt history with their original date; returns how many Trakt recorded, or
+     * null when its answer doesn't say. [onSending] runs right before the request leaves, once nothing can
+     * stop it but the network.
      */
-    private suspend fun addToTraktHistory(items: List<WatchedItem>, onSending: () -> Unit): Int {
+    private suspend fun addToTraktHistory(items: List<WatchedItem>, onSending: () -> Unit): Int? {
         val headers = TraktAuthRepository.authorizedHeaders() ?: error("Trakt is not connected")
         fun WatchedItem.historyIds(): TraktWatchlistIdsDto {
             val parsed = parseTraktContentIds(normalizeTraktComparableId(id))
@@ -543,8 +546,7 @@ object NuvioToTraktSyncManager {
             ),
         )
         onSending()
-        val response = httpRequestRaw(
-            method = "POST",
+        val response = httpPostOnce(
             url = "https://api.trakt.tv/sync/history",
             headers = mapOf(
                 "Accept" to "application/json",
@@ -555,8 +557,8 @@ object NuvioToTraktSyncManager {
         if (response.status in 400..499) throw TraktHistoryRejected("Trakt history add rejected: HTTP ${response.status}")
         // A 5xx (or a gateway's 52x) can come after Trakt recorded the batch: it stays marked as maybe sent.
         check(response.status in 200..299) { "Trakt history add failed: HTTP ${response.status}" }
-        val added = json.decodeFromString<TraktHistoryResponseDto>(response.body).added
-        return (added?.movies ?: 0) + (added?.episodes ?: 0)
+        val added = json.decodeFromString<TraktHistoryResponseDto>(response.body).added ?: return null
+        return added.movies + added.episodes
     }
 
     /** Library ids Trakt already holds, across the watchlist and personal lists. */
