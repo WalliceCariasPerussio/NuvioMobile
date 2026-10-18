@@ -2,4 +2,5 @@
 <resources>
     <string name="player_source_stalled">Esta fonte não está carregando. Escolha outra.</string>
     <string name="player_source_failed">Esta fonte deu erro. Escolha outra.</string>
+    <string name="player_source_trying_next">A fonte não carregou. Tentando outra…</string>
 </resources>

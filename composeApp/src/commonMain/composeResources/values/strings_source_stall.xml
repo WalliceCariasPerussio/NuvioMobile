@@ -3,4 +3,5 @@
 <resources>
     <string name="player_source_stalled">This source is not loading. Pick another one.</string>
     <string name="player_source_failed">This source failed to play. Pick another one.</string>
+    <string name="player_source_trying_next">This source did not load. Trying another one…</string>
 </resources>

@@ -18,6 +18,9 @@ import com.nuvio.app.features.streams.sourceKey
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -27,7 +30,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.player_source_failed
 import nuvio.composeapp.generated.resources.player_source_stalled
+import nuvio.composeapp.generated.resources.player_source_trying_next
 import org.jetbrains.compose.resources.getString
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 // Fork: Netflix-like failover. In the "best in my language" autoplay mode, when the source playing
 // fails or turns out to be an addon's error clip, play the next best source in the same language
@@ -40,11 +46,16 @@ private const val SwitchWatchMs = 20_000L
 private const val ShortClipCheckAfterMs = 2_000L
 /** ~48 Mbps: a real clip this short can't be bigger than that. */
 private const val MaxRealClipBytesPerSecond = 6_000_000L
-/** Buffering with nothing arriving for this long is a dead source, not a slow one. */
+/** Buffering without real progress for this long is a dead source, not a slow one. */
 private const val StallTimeoutMs = 45_000L
 /** A torrent needs longer to find peers and fetch its first pieces. */
 private const val P2pStallTimeoutMs = 90_000L
-private val failoverLog =Logger.withTag("SourceFailover")
+private const val StallPollMs = 1_000L
+// Real progress, not the jitter of a cache that never fills: a second played, two buffered, or a MB of torrent.
+private const val StallMinPositionProgressMs = 1_000L
+private const val StallMinBufferProgressMs = 2_000L
+private const val StallMinP2pProgressBytes = 1_048_576L
+private val failoverLog = Logger.withTag("SourceFailover")
 
 internal class SourceFailoverState(
     /** Identity the player gave the source it opened with (its first activeSourceIdentityKey). */
@@ -73,6 +84,11 @@ internal class SourceFailoverState(
     var shortClipCheckedKey: String? = null
     /** Playback whose trouble already put the source list up: the stall watch fires once per source. */
     var troublePlayback: PlaybackKey? = null
+    /**
+     * Shown on the loading screen while the next source is looked up and starts: the switch happens
+     * behind it, where nothing else says the source changed.
+     */
+    var notice by mutableStateOf<String?>(null)
 
     fun takeResume(): Pair<Long, Float?>? = resumeOverride.also { resumeOverride = null }
 
@@ -81,6 +97,7 @@ internal class SourceFailoverState(
         job?.cancel()
         job = null
         failingPlayback = null
+        notice = null
     }
 }
 
@@ -160,6 +177,7 @@ internal fun PlayerScreenRuntime.tryAutoSourceFailover(failureMessage: String?):
     val manualPickKey = failover.manualPickKey
     failover.failingPlayback = playback
     failover.job = scope.launch {
+        failover.notice = getString(Res.string.player_source_trying_next)
         val pick = try {
             val sources = PlayerStreamsRepository.sourceState
             val debrid = DebridSettingsRepository.snapshot()
@@ -231,6 +249,7 @@ internal fun PlayerScreenRuntime.tryAutoSourceFailover(failureMessage: String?):
 /** No other source: the error for a playback failure, the source list for an addon's error clip. */
 private fun PlayerScreenRuntime.onFailoverExhausted(failureMessage: String?) {
     if (failureMessage == null) {
+        sourceFailover.notice = null
         openSourcesPanel()
     } else if (!offerOtherSources(stalled = false)) {
         showPlaybackError(failureMessage)
@@ -246,8 +265,13 @@ internal fun PlayerScreenRuntime.offerOtherSources(stalled: Boolean): Boolean {
     if (activeVideoId == null) return false
     val playback = activePlaybackKey
     sourceFailover.troublePlayback = playback
+    sourceFailover.notice = null
     removeFailedStreamFromCache()
     scrubbingPositionMs = null
+    // Ends the loading screen, which would cover the list.
+    initialLoadCompleted = true
+    // That would also show "Skip intro" for a source that never loaded, whose seek goes nowhere.
+    skipIntervalDismissed = true
     scope.launch {
         val message = getString(if (stalled) Res.string.player_source_stalled else Res.string.player_source_failed)
         if (activePlaybackKey == playback) NuvioToastController.show(message)
@@ -263,8 +287,6 @@ internal fun PlayerScreenRuntime.offerOtherSources(stalled: Boolean): Boolean {
  */
 @Composable
 internal fun PlayerScreenRuntime.BindSourceStallWatch() {
-    val p2pBytes = (p2pStreamingState as? P2pStreamingState.Streaming)
-        ?.let { maxOf(it.downloadedBytes, it.deliveredBytes) } ?: 0L
     val watching = (activeSourceUrl.isNotBlank() || activeTorrentInfoHash != null) &&
         shouldPlay &&
         playbackSnapshot.isLoading &&
@@ -273,22 +295,44 @@ internal fun PlayerScreenRuntime.BindSourceStallWatch() {
         // Someone already looking at the list.
         !showSourcesPanel &&
         !showEpisodesPanel
-    LaunchedEffect(
-        activePlaybackKey,
-        watching,
-        playbackSnapshot.positionMs,
-        playbackSnapshot.bufferedPositionMs,
-        p2pBytes,
-    ) {
+    LaunchedEffect(activePlaybackKey, watching) {
         if (!watching) return@LaunchedEffect
         val playback = activePlaybackKey
-        delay(if (activeTorrentInfoHash != null) P2pStallTimeoutMs else StallTimeoutMs)
+        val timeout = (if (activeTorrentInfoHash != null) P2pStallTimeoutMs else StallTimeoutMs).milliseconds
+        var progress = stallProgress()
+        var stillSince = TimeSource.Monotonic.markNow()
+        while (stillSince.elapsedNow() < timeout) {
+            delay(StallPollMs)
+            val now = stallProgress()
+            if (now.movedPast(progress)) {
+                progress = now
+                stillSince = TimeSource.Monotonic.markNow()
+            }
+        }
         if (sourceFailover.troublePlayback == playback || sourceFailover.inProgress) return@LaunchedEffect
         failoverLog.w { "no progress for the stall timeout: ${activeSourceUrl.ifBlank { activeTorrentInfoHash }}" }
         val message = getString(Res.string.player_source_stalled)
         if (!tryAutoSourceFailover(message)) offerOtherSources(stalled = true)
     }
+    // The next source started: the loading screen no longer says it is being switched.
+    LaunchedEffect(initialLoadCompleted) {
+        if (initialLoadCompleted) sourceFailover.notice = null
+    }
 }
+
+private class StallProgress(val positionMs: Long, val bufferedPositionMs: Long, val p2pBytes: Long) {
+    fun movedPast(start: StallProgress): Boolean =
+        positionMs - start.positionMs >= StallMinPositionProgressMs ||
+            bufferedPositionMs - start.bufferedPositionMs >= StallMinBufferProgressMs ||
+            p2pBytes - start.p2pBytes >= StallMinP2pProgressBytes
+}
+
+private fun PlayerScreenRuntime.stallProgress() = StallProgress(
+    positionMs = playbackSnapshot.positionMs,
+    bufferedPositionMs = playbackSnapshot.bufferedPositionMs,
+    p2pBytes = (p2pStreamingState as? P2pStreamingState.Streaming)
+        ?.let { maxOf(it.downloadedBytes, it.deliveredBytes) } ?: 0L,
+)
 
 /**
  * Called on every playback snapshot. Debrid addons answer with a 30 s video when they can't serve
@@ -336,6 +380,7 @@ internal fun PlayerScreenRuntime.currentDeclaredSize(): Long? {
 
 /** What the player's onError does when no source takes over. */
 private fun PlayerScreenRuntime.showPlaybackError(message: String) {
+    sourceFailover.notice = null
     errorMessage = message
     scrubbingPositionMs = null
     controlsVisible = !playerControlsLocked

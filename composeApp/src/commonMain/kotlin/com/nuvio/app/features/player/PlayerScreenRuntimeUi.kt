@@ -450,7 +450,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             flushWatchProgress()
             args.onBack()
         },
-        openingLoadingMessage = if (playerSettingsUiState.showPlayerLoadingStatus) {
+        openingLoadingMessage = sourceFailover.notice ?: if (playerSettingsUiState.showPlayerLoadingStatus) { // fork
             p2pInitialLoadingMessage ?: playerLoadingStatusMessage(
                 showStatus = true,
                 controllerReady = playerController != null,
