@@ -269,7 +269,10 @@ internal fun PlayerScreenRuntime.BindSourceStallWatch() {
         shouldPlay &&
         playbackSnapshot.isLoading &&
         errorMessage == null &&
-        pendingP2pSwitch == null
+        pendingP2pSwitch == null &&
+        // Someone already looking at the list.
+        !showSourcesPanel &&
+        !showEpisodesPanel
     LaunchedEffect(
         activePlaybackKey,
         watching,
