@@ -46,7 +46,8 @@ internal fun PlayerScreenRuntime.currentSourceStream(streams: List<StreamItem>):
  * tells it (its label may tell PT-BR or Latin Spanish when its code doesn't).
  */
 private fun audioTrackLanguage(track: AudioTrack, streamLanguages: List<String>): String? {
-    val base = streamLanguageCode(track.language) ?: return null
+    // A language the title names wins over the tag (PlayerAudioTrackLanguage.kt).
+    val base = streamLanguageCode(audioTitleLanguage(track.label) ?: track.language) ?: return null
     val code = streamLanguageCode(SubtitleLanguageMatching.detectTrackLanguageVariant(track.language, track.label, track.id))
         ?.takeIf { sameLanguage(it, base) }
         ?: base

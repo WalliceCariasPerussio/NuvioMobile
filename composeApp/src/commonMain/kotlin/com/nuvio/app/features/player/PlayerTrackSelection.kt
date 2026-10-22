@@ -464,6 +464,23 @@ internal fun preferredSubtitleTargetsForSettings(settings: PlayerSettingsUiState
     ).filterNot { it == SubtitleLanguageOption.FORCED }
 }
 
+// Players report ISO 639-2 tags such as "cze" or "slo"; preferences are stored as ISO 639-1.
+internal fun findPreferredAudioTrackIndex(
+    tracks: List<AudioTrack>,
+    languages: List<String>,
+): Int {
+    for (language in languages) {
+        // Fork: by the language heard, which a title can name over the tag (PlayerAudioTrackLanguage.kt).
+        val index = findSpokenAudioTrackPosition(tracks, language)
+        if (index >= 0) return index
+        val byLabel = tracks.indexOfFirst {
+            normalizeLanguageCode(it.language) == null && audioTrackMatchesLanguage(it, language)
+        }
+        if (byLabel >= 0) return byLabel
+    }
+    return -1
+}
+
 internal fun findPersistedAudioTrackIndex(
     tracks: List<AudioTrack>,
     preference: PersistedPlayerTrackPreference,
@@ -486,6 +503,9 @@ internal fun findPersistedAudioTrackIndex(
         strictCandidates.firstOrNull { it.label.trim().lowercase().contains(targetName) }
             ?.let { return it.index }
     }
+    // Fork: the language heard, which the saved track's title can name over its tag (PlayerAudioTrackLanguage.kt).
+    val spokenPosition = findSpokenAudioTrackPosition(tracks, audioTitleLanguage(preference.audioName) ?: targetLanguage)
+    if (spokenPosition >= 0) return tracks[spokenPosition].index
     if (targetLanguage == null) return -1
     val languageCandidates = tracks.filter { languageMatchesPreference(it.language, targetLanguage) }
     val targetVariant = SubtitleLanguageMatching.detectTrackLanguageVariant(
