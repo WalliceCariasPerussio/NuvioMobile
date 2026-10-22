@@ -230,6 +230,8 @@ internal fun PlayerScreenRuntime.switchToP2pSourceStream(stream: StreamItem) {
     activeProviderAddonId = stream.addonId
     activeStream = stream
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
+    currentStreamFilename = stream.behaviorHints.filename
+    currentStreamInfoHash = stream.infoHash
     // Fork: a failover after a startup failure keeps the resume point instead of position 0.
     val failoverResume = sourceFailover.takeResume()
     activeInitialPositionMs = failoverResume?.first ?: currentPositionMs
@@ -334,6 +336,8 @@ internal fun PlayerScreenRuntime.switchToSource(
     activeProviderAddonId = stream.addonId
     activeStream = stream
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
+    currentStreamFilename = stream.behaviorHints.filename
+    currentStreamInfoHash = stream.infoHash
     // Fork: a failover after a startup failure keeps the resume point instead of position 0.
     val failoverResume = sourceFailover.takeResume()
     activeInitialPositionMs = failoverResume?.first ?: currentPositionMs
@@ -437,6 +441,8 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
     activeProviderAddonId = downloadItem.providerAddonId
     activeStream = null
     currentStreamBingeGroup = null
+    currentStreamFilename = null
+    currentStreamInfoHash = null
     activeSeasonNumber = episode.season
     activeEpisodeNumber = episode.episode
     activeEpisodeTitle = episode.title
@@ -587,6 +593,8 @@ private fun PlayerScreenRuntime.applyEpisodeStreamMetadata(
     activeProviderAddonId = stream.addonId
     activeStream = stream
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
+    currentStreamFilename = stream.behaviorHints.filename
+    currentStreamInfoHash = stream.infoHash
     rememberSourceDeclaredSize(stream) // fork
     activeSeasonNumber = episode.season
     activeEpisodeNumber = episode.episode
