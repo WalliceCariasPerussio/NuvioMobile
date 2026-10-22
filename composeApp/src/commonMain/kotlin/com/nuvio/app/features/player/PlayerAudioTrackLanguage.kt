@@ -71,6 +71,23 @@ internal fun audioTitleLanguage(title: String?): String? {
     return found.filterNot { base -> found.any { it != base && it.substringBefore('-') == base } }.singleOrNull()
 }
 
+/** True when the title names a language the tag doesn't say ("PT-BR" tagged jpn or por), or there is no tag. */
+internal fun AudioTrack.titleOverridesTag(): Boolean {
+    val titled = audioTitleLanguage(label) ?: return false
+    val tagged = normalizeLanguageCode(language)?.takeUnless { it == "und" } ?: return true
+    return titled != tagged
+}
+
+/**
+ * The engines choose by tag (ExoPlayer's preferred languages, mpv's alang). When a title names another
+ * language than its tag, the track is picked here instead, as [findPreferredAudioTrackIndex] finds it.
+ */
+internal fun selectTitledAudioTrack(controller: PlayerEngineController, tracks: List<AudioTrack>, targets: List<String>) {
+    if (tracks.none { it.titleOverridesTag() }) return
+    val position = findPreferredAudioTrackIndex(tracks, targets)
+    if (position >= 0) controller.selectAudioTrack(tracks[position].index)
+}
+
 /** The language heard on this track: the one its title names, else its tag. */
 internal fun AudioTrack.spokenLanguage(): String? =
     audioTitleLanguage(label) ?: normalizeLanguageCode(language)

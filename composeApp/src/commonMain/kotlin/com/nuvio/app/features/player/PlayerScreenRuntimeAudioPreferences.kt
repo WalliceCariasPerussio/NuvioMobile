@@ -34,6 +34,7 @@ internal fun PlayerScreenRuntime.applyPreferredAudioTrack(targets: List<String>)
     )
     if (appliedAudioPreferences != preferences) {
         controller.applyAudioLanguagePreferences(targets)
+        selectTitledAudioTrack(controller, audioTracks, targets) // fork: PlayerAudioTrackLanguage.kt
         appliedAudioPreferences = preferences
         preferredAudioSelectionApplied = false
     } else {

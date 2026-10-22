@@ -95,6 +95,16 @@ class PlayerAudioTrackLanguageTest {
     }
 
     @Test
+    fun titleOverridesTheTagOnlyWhenItSaysSomethingElse() {
+        assertEquals(true, dubbed.titleOverridesTag())
+        assertEquals(true, AudioTrack(0, "1", "Português (Brasil)", "por").titleOverridesTag())
+        assertEquals(true, AudioTrack(0, "1", "English", null).titleOverridesTag())
+        assertEquals(false, japanese.titleOverridesTag())
+        assertEquals(false, AudioTrack(0, "1", "English 5.1", "eng").titleOverridesTag())
+        assertEquals(false, AudioTrack(0, "1", "Stereo", "eng").titleOverridesTag())
+    }
+
+    @Test
     fun codecWithALanguageCodeKeepsTheTag() {
         val tracks = listOf(AudioTrack(0, "1", "English DTS-ES 6.1", "eng"))
 
