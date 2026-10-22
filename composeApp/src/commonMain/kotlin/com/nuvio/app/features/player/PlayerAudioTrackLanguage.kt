@@ -14,8 +14,11 @@ private val TitleVariantPatterns = listOf(
     "es-419" to titlePattern("es[-_]?(419|la|lat)", "latino", "latam", "latin american", "espanhol ?\\(la\\)"),
 )
 
-// Codec names holding a language code: DTS-ES (Spanish) and HE-AAC (Hebrew).
-private val TitleCodecPattern = titlePattern("dts[-_ ]?es", "he[-_ ]?aac(v2)?")
+// Codec names holding a language code: DTS-ES (Spanish), HE-AAC (Hebrew), DTS-HD HR (Croatian).
+private val TitleCodecPattern = titlePattern("dts[-_ ]?es", "he[-_ ]?aac(v2)?", "aac[-_ ]?he(v2)?", "dts[-_ ]?hd[-_ ]?hr")
+
+// Accents written as a separate combining mark ("e" + U+0302), dropped so "Português" still reads as one word.
+private val CombiningMarks = '̀'..'ͯ'
 
 private val TitleWordPattern = Regex("[A-Za-zÀ-ɏ]+")
 
@@ -42,7 +45,7 @@ private fun titlePattern(vararg tokens: String): Regex =
  */
 internal fun audioTitleLanguage(title: String?): String? {
     if (title.isNullOrBlank()) return null
-    val text = title.toCharArray()
+    val text = title.filterNot { it in CombiningMarks }.toCharArray()
     // Char by char, so positions in the lowercase copy match the title's.
     val lower = CharArray(text.size) { text[it].lowercaseChar() }
     fun blank(range: IntRange) = range.forEach { text[it] = ' '; lower[it] = ' ' }

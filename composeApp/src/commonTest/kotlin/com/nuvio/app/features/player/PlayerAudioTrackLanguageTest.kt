@@ -75,6 +75,8 @@ class PlayerAudioTrackLanguageTest {
         assertEquals("ja", audioTitleLanguage("Japanese"))
         assertEquals("en", audioTitleLanguage("ENG DTS-HD MA 5.1"))
         assertEquals("es-419", audioTitleLanguage("Español Latino"))
+        // The accent as a separate combining mark.
+        assertEquals("pt-br", audioTitleLanguage("Português (Brasil)"))
     }
 
     @Test
@@ -86,6 +88,8 @@ class PlayerAudioTrackLanguageTest {
         // Codecs holding a language code, and short plain words.
         assertNull(audioTitleLanguage("DTS-ES 6.1"))
         assertNull(audioTitleLanguage("HE-AAC 2.0"))
+        assertNull(audioTitleLanguage("AAC-HE 2.0"))
+        assertNull(audioTitleLanguage("DTS-HD HR 5.1"))
         assertNull(audioTitleLanguage("Comentário do diretor"))
         assertNull(audioTitleLanguage("jpn (Stereo, AAC)"))
     }
