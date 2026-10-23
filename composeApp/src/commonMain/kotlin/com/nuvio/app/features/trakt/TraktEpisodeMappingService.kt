@@ -375,40 +375,20 @@ object TraktEpisodeMappingService {
 
         getAddonMisses++
         val startTime = TimeSource.Monotonic.markNow()
-        // Dedup: if another coroutine is already fetching this show, await its result.
-        val existingDeferred = cacheMutex.withLock { addonEpisodesInFlight[cacheKey] }
-        if (existingDeferred != null) {
-            return try { existingDeferred.await() } catch (_: Exception) { emptyList() }
-        }
-
-        // Register ourselves as the in-flight fetcher.
-        val deferred = CompletableDeferred<List<EpisodeMappingEntry>>()
-        val weOwn = cacheMutex.withLock {
-            // Double-check: cache or another flight may have appeared while we waited.
-            addonEpisodesCache[cacheKey]?.let { return it }
-            if (addonEpisodesInFlight.containsKey(cacheKey)) {
-                false
-            } else {
-                addonEpisodesInFlight[cacheKey] = deferred
-                true
-            }
-        }
-        if (!weOwn) {
-            val other = cacheMutex.withLock { addonEpisodesInFlight[cacheKey] }
-            return try { other?.await() ?: emptyList() } catch (_: Exception) { emptyList() }
-        }
-
+        // Dedup: one fetch per show; concurrent callers await it (fork: SharedFetch.kt).
         return try {
-            val addonEpisodes = fetchAddonEpisodes(contentId, contentType)
-            cacheMutex.withLock { addonEpisodesCache[cacheKey] = addonEpisodes }
-            deferred.complete(addonEpisodes)
-            addonEpisodes
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            deferred.completeExceptionally(e)
-            emptyList()
+            sharedFetch(
+                mutex = cacheMutex,
+                inFlight = addonEpisodesInFlight,
+                key = cacheKey,
+                fallback = emptyList(),
+                cached = { addonEpisodesCache[cacheKey] },
+            ) {
+                val addonEpisodes = fetchAddonEpisodes(contentId, contentType)
+                cacheMutex.withLock { addonEpisodesCache[cacheKey] = addonEpisodes }
+                addonEpisodes
+            }
         } finally {
-            cacheMutex.withLock { addonEpisodesInFlight.remove(cacheKey) }
             getAddonTimeMs += startTime.elapsedNow().inWholeMilliseconds
         }
     }
@@ -453,32 +433,22 @@ object TraktEpisodeMappingService {
             traktEpisodesCache[showLookupId]?.let { return it }
         }
 
-        val existingDeferred = cacheMutex.withLock { traktEpisodesInFlight[showLookupId] }
-        if (existingDeferred != null) {
-            return try { existingDeferred.await() } catch (_: Exception) { emptyList() }
+        // Fork: SharedFetch.kt always releases the callers waiting for this show.
+        return sharedFetch(
+            mutex = cacheMutex,
+            inFlight = traktEpisodesInFlight,
+            key = showLookupId,
+            fallback = emptyList(),
+            cached = { traktEpisodesCache[showLookupId] },
+        ) {
+            fetchTraktEpisodes(showLookupId)
         }
+    }
 
-        val deferred = CompletableDeferred<List<EpisodeMappingEntry>>()
-        val weOwn = cacheMutex.withLock {
-            traktEpisodesCache[showLookupId]?.let { return it }
-            if (traktEpisodesInFlight.containsKey(showLookupId)) {
-                false
-            } else {
-                traktEpisodesInFlight[showLookupId] = deferred
-                true
-            }
-        }
-        if (!weOwn) {
-            val other = cacheMutex.withLock { traktEpisodesInFlight[showLookupId] }
-            return try { other?.await() ?: emptyList() } catch (_: Exception) { emptyList() }
-        }
-
+    private suspend fun fetchTraktEpisodes(showLookupId: String): List<EpisodeMappingEntry> {
         getTraktMisses++
         val startTime = TimeSource.Monotonic.markNow()
-        val headers = TraktAuthRepository.authorizedHeaders() ?: run {
-            cleanupTraktFlight(showLookupId)
-            return emptyList()
-        }
+        val headers = TraktAuthRepository.authorizedHeaders() ?: return emptyList()
 
         // Trakt API: GET /shows/{id}/seasons?extended=episodes
         val url = "$BASE_URL/shows/$showLookupId/seasons?extended=episodes"
@@ -489,7 +459,6 @@ object TraktEpisodeMappingService {
             log.w { "getTraktEpisodes: seasons request failed id=$showLookupId: ${e.message}" }
         }.getOrNull() ?: run {
             getTraktTimeMs += startTime.elapsedNow().inWholeMilliseconds
-            cleanupTraktFlight(showLookupId)
             return emptyList()
         }
 
@@ -497,14 +466,8 @@ object TraktEpisodeMappingService {
         cacheMutex.withLock {
             traktEpisodesCache[showLookupId] = traktEpisodes
         }
-        deferred.complete(traktEpisodes)
-        cleanupTraktFlight(showLookupId)
         getTraktTimeMs += startTime.elapsedNow().inWholeMilliseconds
         return traktEpisodes
-    }
-
-    private suspend fun cleanupTraktFlight(showLookupId: String) {
-        cacheMutex.withLock { traktEpisodesInFlight.remove(showLookupId) }
     }
 
     private fun parseTraktSeasonsPayload(payload: String): List<EpisodeMappingEntry> {
