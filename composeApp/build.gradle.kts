@@ -242,6 +242,17 @@ val releaseAppVersionName = providers.gradleProperty("nuvio.app.versionName").or
 val releaseAppVersionCode = readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")
     ?.toIntOrNull()
     ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
+// Fork: the same x.y.z-fork.<commit count>[.<upstream suffix>] that androidApp/build.gradle.kts gives the
+// APK, because AppVersionConfig.VERSION_NAME is what the in-app updater compares with the fork's releases.
+val forkCommitCount: Int? = runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+        .standardOutput.asText.get().trim().toInt()
+}.getOrNull()
+val forkAppVersionName = forkCommitCount?.let { count ->
+    val core = releaseAppVersionName.substringBefore('-')
+    val upstreamSuffix = releaseAppVersionName.substringAfter('-', "")
+    "$core-fork.$count" + upstreamSuffix.takeIf { it.isNotEmpty() }?.let { ".$it" }.orEmpty()
+} ?: releaseAppVersionName
 val iosDistribution = (
     providers.gradleProperty("nuvio.ios.distribution").orNull
         ?: System.getenv("NUVIO_IOS_DISTRIBUTION")
@@ -318,8 +329,8 @@ fun runtimeConfigBoolean(key: String, default: Boolean): Boolean =
 val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generateRuntimeConfigs") {
     outputDir.set(generatedRuntimeConfigDir)
     localPropertiesFile.set(rootProject.layout.projectDirectory.file("local.properties"))
-    appVersionName.set(releaseAppVersionName)
-    appVersionCode.set(releaseAppVersionCode)
+    appVersionName.set(forkAppVersionName)
+    appVersionCode.set(forkCommitCount ?: releaseAppVersionCode)
     supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL"))
     supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))

@@ -1,6 +1,7 @@
 package com.nuvio.app.features.updater
 
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.Test
 
 class ReleaseSelectorTest {
@@ -57,6 +58,30 @@ class ReleaseSelectorTest {
         val selected = ReleaseSelector.eligibleReleases(releases, UpdateChannel.BETA)
 
         assertEquals(listOf("1.1.0"), selected.map { it.tagName })
+    }
+
+    @Test
+    fun `stable channel accepts fork builds whatever upstream suffix they carry`() {
+        val releases = listOf(
+            release("v0.6.3-fork.2896", name = "Nuvio 0.6.3-fork.2896"),
+            release("v0.6.4-fork.2900.beta.1", prerelease = true),
+            release("v0.6.3-fork.2897.rc.1"),
+            release("ios-0.6.3-146001"),
+            release("0.6.2")
+        )
+
+        val selected = ReleaseSelector.eligibleReleases(releases, UpdateChannel.STABLE)
+
+        assertEquals(
+            listOf("v0.6.3-fork.2897.rc.1", "v0.6.3-fork.2896", "0.6.2"),
+            selected.map { it.tagName }
+        )
+    }
+
+    @Test
+    fun `fork builds order by commit count before the upstream suffix`() {
+        assertTrue(VersionUtils.isRemoteNewer("0.6.3-fork.2897", "0.6.3-fork.2896.rc.1"))
+        assertTrue(VersionUtils.isRemoteNewer("0.6.4-fork.2897.beta.9", "0.6.3-fork.2896"))
     }
 
     private fun release(

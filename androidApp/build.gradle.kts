@@ -149,6 +149,33 @@ androidComponents {
     }
 }
 
+// Fork: versionCode is the commit count and versionName becomes x.y.z-fork.<count>[.<upstream suffix>],
+// so the APKs from .github/workflows/fork-android-release.yml and local installs of the same app id can
+// replace each other, and the updater (pointed at the fork) sees the newer commit as newer.
+val forkCommitCount: Int? = runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+        .standardOutput.asText.get().trim().toInt()
+}.getOrNull()
+// Fork: the CI release keeps the id of the test build already on the devices (com.nuviodebug.com).
+val forkReleaseApplicationId = providers.gradleProperty("nuvio.fork.applicationId").orNull?.takeIf { it.isNotBlank() }
+
+androidComponents {
+    onVariants { variant ->
+        if (forkCommitCount == null) return@onVariants
+        variant.outputs.forEach { output ->
+            output.versionCode.set(forkCommitCount)
+            output.versionName.orNull?.let { upstreamName ->
+                val core = upstreamName.substringBefore('-')
+                val upstreamSuffix = upstreamName.substringAfter('-', "")
+                output.versionName.set("$core-fork.$forkCommitCount" + upstreamSuffix.takeIf { it.isNotEmpty() }?.let { ".$it" }.orEmpty())
+            }
+        }
+    }
+    onVariants(selector().withBuildType("release")) { variant ->
+        forkReleaseApplicationId?.let(variant.applicationId::set)
+    }
+}
+
 sentry {
     includeProguardMapping.set(true)
     autoUploadProguardMapping.set(sentryMappingUploadEnabled)
