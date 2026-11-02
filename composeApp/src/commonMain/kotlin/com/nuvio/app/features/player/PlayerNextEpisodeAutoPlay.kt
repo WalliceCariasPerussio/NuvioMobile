@@ -35,6 +35,7 @@ internal fun PlayerScreenRuntime.isAtNextEpisodeThreshold(): Boolean {
     ) return false
     // Preload (fork): fetch the next episode's sources as soon as this one plays, not only near the
     // end, so skipping ahead finds them ready. The player retains them until it closes.
+    // Offline: preloadNextEpisodeSources() leaves the trigger unset and retries once back online.
     if (!nextEpisodePreloadTriggered && nextEpisodeInfo != null) {
         preloadNextEpisodeSources()
     }
@@ -95,6 +96,9 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
         return null
     }
 
+    // Offline: the auto-play fan-out is a network search, so skip it entirely.
+    if (isNetworkOffline()) return null
+
     previousJob?.cancel()
     onSearchingChanged(true)
     onSourceNameChanged(null)
@@ -149,6 +153,12 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     }
 
     return launch {
+        // Connectivity may have dropped between the request and the actual search.
+        if (isNetworkOffline()) {
+            onSearchingChanged(false)
+            return@launch
+        }
+
         PlayerStreamsRepository.loadEpisodeStreams(
             type = type,
             videoId = nextVideo.id,
@@ -352,6 +362,8 @@ internal fun PlayerScreenRuntime.preloadNextEpisodeSources() {
     if (nextEp.hasAired != true) return
     // Same type the next-episode autoplay and the episodes panel search with.
     val type = contentType ?: parentMetaType
+    // Offline: preloading streams is a network search; retry once connectivity returns.
+    if (isNetworkOffline()) return
 
     nextEpisodePreloadTriggered = true
     PlayerStreamsRepository.preloadStreams(
