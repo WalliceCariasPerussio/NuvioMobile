@@ -18,6 +18,7 @@ import com.nuvio.app.core.storage.PlatformLocalAccountDataCleaner
 import com.nuvio.app.core.sync.SyncClientIdentityStorage
 import com.nuvio.app.features.addons.AddonHttpClientProvider
 import com.nuvio.app.features.addons.AddonStorage
+import com.nuvio.app.features.ai.AiAssistantStorage
 import com.nuvio.app.features.collection.CollectionMobileSettingsStorage
 import com.nuvio.app.features.collection.CollectionStorage
 import com.nuvio.app.features.debrid.DebridSettingsStorage
@@ -120,6 +121,7 @@ open class MainActivity : AppCompatActivity() {
         DebridSettingsStorage.initialize(applicationContext)
         TmdbSettingsStorage.initialize(applicationContext)
         MdbListSettingsStorage.initialize(applicationContext)
+        AiAssistantStorage.initialize(applicationContext)
         TraktAuthStorage.initialize(applicationContext)
         TraktCommentsStorage.initialize(applicationContext)
         TraktLibraryStorage.initialize(applicationContext)
