@@ -151,9 +151,17 @@ internal object AiRecommendationPrompt {
         put("additionalProperties", false)
     }
 
-    /** O contexto (o que já foi assistido) vai junto da última mensagem, não na instrução fixa. */
-    fun buildUserTurn(request: String, watched: List<WatchedItem>): String {
-        val names = watchedContextLines(watched)
+    /**
+     * O contexto (o que já foi assistido) vai junto da última mensagem, não na instrução fixa.
+     * [knownNames] dá o nome de um título pelo id (Continuar assistindo, biblioteca), para séries
+     * que só têm episódios marcados.
+     */
+    fun buildUserTurn(
+        request: String,
+        watched: List<WatchedItem>,
+        knownNames: Map<String, String> = emptyMap(),
+    ): String {
+        val names = watchedContextLines(watched, knownNames)
         if (names.isEmpty()) return request.trim()
         return buildString {
             append(request.trim())
@@ -167,13 +175,16 @@ internal object AiRecommendationPrompt {
      * Uma linha por título. Episódio marcado guarda o nome do episódio ("Renascimento"), não o da
      * série: agrupar pelo nome deixava uma série de 148 episódios ocupar quase todas as linhas.
      */
-    internal fun watchedContextLines(watched: List<WatchedItem>): List<String> {
+    internal fun watchedContextLines(
+        watched: List<WatchedItem>,
+        knownNames: Map<String, String> = emptyMap(),
+    ): List<String> {
         val seenNames = mutableSetOf<String>()
         return watched
             .filter { it.id.isNotBlank() }
             .groupBy { item -> item.id to item.isSeriesLike() }
             .mapNotNull { (key, items) ->
-                val name = contextName(items) ?: return@mapNotNull null
+                val name = contextName(items, knownNames[key.first]) ?: return@mapNotNull null
                 val year = items.firstNotNullOfOrNull { item ->
                     item.releaseInfo?.take(4)?.takeIf { it.length == 4 && it.all(Char::isDigit) }
                 }
@@ -207,17 +218,21 @@ internal object AiRecommendationPrompt {
     private fun WatchedItem.isSeriesLike(): Boolean =
         season != null || type.lowercase() in setOf("series", "show", "tv", "anime")
 
-    /** Nome do item da série (sem temporada); sem ele, o nome que mais se repete nos episódios. */
-    private fun contextName(items: List<WatchedItem>): String? {
+    /**
+     * Nome do item da série (sem temporada); sem ele, o nome conhecido por outra fonte; sem esse,
+     * o nome que se repete nos episódios (os do Trakt vêm todos com o nome da série). Vários
+     * episódios com nomes diferentes são títulos de episódio: melhor ficar de fora que mandar
+     * "Pilot [série]".
+     */
+    private fun contextName(items: List<WatchedItem>, knownName: String?): String? {
         items.firstOrNull { it.season == null && it.episode == null }
             ?.name?.trim()?.takeIf(String::isNotEmpty)
             ?.let { return it }
-        return items
-            .mapNotNull { it.name.trim().takeIf(String::isNotEmpty) }
-            .groupingBy { it }
-            .eachCount()
-            .maxByOrNull { it.value }
-            ?.key
+        knownName?.trim()?.takeIf(String::isNotEmpty)?.let { return it }
+        val names = items.mapNotNull { it.name.trim().takeIf(String::isNotEmpty) }
+        if (names.size == 1) return names.single()
+        val (name, count) = names.groupingBy { it }.eachCount().maxByOrNull { it.value } ?: return null
+        return name.takeIf { count >= 2 }
     }
 
     private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true }

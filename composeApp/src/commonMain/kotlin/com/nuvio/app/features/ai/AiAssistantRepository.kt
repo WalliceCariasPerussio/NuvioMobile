@@ -1,7 +1,9 @@
 package com.nuvio.app.features.ai
 
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -60,6 +62,8 @@ data class AiAssistantTurn(
     internal val historyText: String? = null,
     /** Título como o modelo escreveu (normalizado, com o tipo), alinhado com [items]. */
     internal val itemKeys: List<String> = emptyList(),
+    /** Ano que o modelo deu a cada título, alinhado com [items]. */
+    internal val itemYears: List<Int?> = emptyList(),
 ) {
     val hasPendingActions: Boolean
         get() = actions.any { it.status == AiAssistantActionStatus.Pending }
@@ -123,8 +127,9 @@ object AiAssistantRepository {
     fun approveActions(turnId: Long) {
         var started = false
         updateTurn(turnId) { turn ->
-            if (!turn.hasPendingActions) return@updateTurn turn
-            started = true
+            // A lambda do update pode rodar de novo: o valor certo é o da última execução, a que valeu.
+            started = turn.hasPendingActions
+            if (!started) return@updateTurn turn
             turn.copy(
                 actions = turn.actions.map { action ->
                     if (action.status == AiAssistantActionStatus.Pending) {
@@ -189,12 +194,17 @@ object AiAssistantRepository {
     ): AiAssistantTurn {
         // A SearchScreen já chama WatchedRepository.ensureLoaded() na thread principal.
         val watched = WatchedRepository.uiState.value.items
+        // Episódio marcado guarda o nome do episódio: o da série vem do progresso ou da biblioteca.
+        val knownNames = buildMap {
+            LibraryRepository.uiState.value.items.forEach { item -> put(item.id, item.name) }
+            WatchProgressRepository.uiState.value.entries.forEach { entry -> put(entry.parentMetaId, entry.title) }
+        }
         val messages = buildList {
             history.forEach { turn ->
                 add(AiChatMessage(AiChatRole.User, turn.prompt))
                 add(AiChatMessage(AiChatRole.Assistant, historyMessage(turn)))
             }
-            add(AiChatMessage(AiChatRole.User, AiRecommendationPrompt.buildUserTurn(prompt, watched)))
+            add(AiChatMessage(AiChatRole.User, AiRecommendationPrompt.buildUserTurn(prompt, watched, knownNames)))
         }
 
         val failed = AiAssistantTurn(turnId, prompt, AiAssistantTurnStatus.Failed)
@@ -235,6 +245,7 @@ object AiAssistantRepository {
             // O histórico leva só o que apareceu na tela, para "o 1, 2 e 5" bater com os cartazes.
             historyText = AiRecommendationPrompt.encodeForHistory(reply.copy(titles = resolved.map { it.suggested })),
             itemKeys = resolved.map { titleKey(it.suggested.title, it.suggested.type) },
+            itemYears = resolved.map { it.suggested.year },
         )
     }
 
@@ -262,14 +273,22 @@ object AiAssistantRepository {
         val key = titleKey(target.title, target.type)
         val wantedType = target.type.wireName
         turns.asReversed().forEach { turn ->
-            val index = turn.itemKeys.indexOf(key)
-            if (index >= 0) turn.items.getOrNull(index)?.let { return it }
+            turn.itemKeys.forEachIndexed { index, itemKey ->
+                if (itemKey == key && yearsMatch(target.year, turn.itemYears.getOrNull(index))) {
+                    turn.items.getOrNull(index)?.let { return it }
+                }
+            }
             turn.items.firstOrNull { item ->
-                item.type == wantedType && item.name.normalizedTitle() == target.title.normalizedTitle()
+                item.type == wantedType &&
+                    item.name.normalizedTitle() == target.title.normalizedTitle() &&
+                    yearsMatch(target.year, item.releaseInfo?.take(4)?.toIntOrNull())
             }?.let { return it }
         }
         return null
     }
 
     private fun titleKey(title: String, type: AiTitleType): String = "${title.normalizedTitle()}|${type.wireName}"
+
+    /** The Office de 2001 e o de 2005 têm o mesmo nome: com os dois anos conhecidos, eles decidem. */
+    private fun yearsMatch(wanted: Int?, shown: Int?): Boolean = wanted == null || shown == null || wanted == shown
 }

@@ -106,6 +106,21 @@ class AiRecommendationPromptTest {
     }
 
     @Test
+    fun `episodes with distinct titles use the known name or stay out`() {
+        val episodes = listOf(
+            WatchedItem(id = "tt5", type = "series", name = "Pilot", season = 1, episode = 1, markedAtEpochMs = 10),
+            WatchedItem(id = "tt5", type = "series", name = "Cat's in the Bag", season = 1, episode = 2, markedAtEpochMs = 11),
+        )
+        val single = WatchedItem(id = "tt6", type = "series", name = "Severance", season = 1, episode = 1, markedAtEpochMs = 5)
+
+        assertEquals(
+            listOf("Breaking Bad [série]", "Severance [série]"),
+            AiRecommendationPrompt.watchedContextLines(episodes + single, knownNames = mapOf("tt5" to "Breaking Bad")),
+        )
+        assertEquals(listOf("Severance [série]"), AiRecommendationPrompt.watchedContextLines(episodes + single))
+    }
+
+    @Test
     fun `watched context keeps one line when the same title has two ids`() {
         val watched = listOf(
             WatchedItem(id = "tmdb:1429", type = "series", name = "Attack on Titan", markedAtEpochMs = 200),
