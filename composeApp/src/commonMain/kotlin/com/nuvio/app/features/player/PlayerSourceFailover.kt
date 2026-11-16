@@ -148,12 +148,7 @@ internal fun PlayerScreenRuntime.tryAutoSourceFailover(failureMessage: String?):
     // A lookup still running belongs to a source the player already left.
     failover.cancelPending()
 
-    val episodeKey = "$videoId:$activeSeasonNumber:$activeEpisodeNumber"
-    if (failover.episodeKey != episodeKey) {
-        failover.episodeKey = episodeKey
-        failover.failedKeys.clear()
-        failover.attempts = 0
-    }
+    startFailoverEpisode(videoId)
     if (isManualSourcePlaying()) return false
     if (failover.attempts >= MaxSourceFailovers) return false
     failover.attempts++
@@ -244,6 +239,33 @@ internal fun PlayerScreenRuntime.tryAutoSourceFailover(failureMessage: String?):
         }
     }
     return true
+}
+
+/** The count and the failed sources belong to one episode: another one starts them over. */
+private fun PlayerScreenRuntime.startFailoverEpisode(videoId: String) {
+    val failover = sourceFailover
+    val episodeKey = "$videoId:$activeSeasonNumber:$activeEpisodeNumber"
+    if (failover.episodeKey != episodeKey) {
+        failover.episodeKey = episodeKey
+        failover.failedKeys.clear()
+        failover.attempts = 0
+    }
+}
+
+/**
+ * [tryAutoSourceFailover] after the upstream fallback (PlayerScreenRuntimeSourceFallback.kt) gave up or
+ * did not apply: the sources that fallback already tried are left out, so they are not tried again.
+ */
+internal fun PlayerScreenRuntime.tryAutoSourceFailoverAfterFallback(failureMessage: String): Boolean {
+    val videoId = activeVideoId ?: return false
+    if (sourceFallbackTriedKeys.isNotEmpty()) {
+        startFailoverEpisode(videoId)
+        PlayerStreamsRepository.sourceState.value.groups.flatMap { it.streams }
+            .filter { it.playerSourceIdentityKey() in sourceFallbackTriedKeys }
+            .mapNotNull { it.sourceKey() }
+            .forEach(sourceFailover.failedKeys::add)
+    }
+    return tryAutoSourceFailover(failureMessage)
 }
 
 /** No other source: the error for a playback failure, the source list for an addon's error clip. */

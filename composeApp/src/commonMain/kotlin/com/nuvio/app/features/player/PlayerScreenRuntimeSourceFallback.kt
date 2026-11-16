@@ -58,7 +58,7 @@ internal fun PlayerScreenRuntime.playReplacementSource(stream: StreamItem, url: 
 internal fun PlayerScreenRuntime.showErrorUnlessSourceFallback(message: String?) {
     if (tryFallbackToNextSourceAfterError(message)) return
     // Fork (PlayerSourceFailover.kt): another source, as in onError, before giving up.
-    if (message != null && tryAutoSourceFailover(message)) return
+    if (message != null && tryAutoSourceFailoverAfterFallback(message)) return
     if (message != null && offerOtherSources(stalled = false)) return
     errorMessage = message
     controlsVisible = !playerControlsLocked
@@ -138,6 +138,10 @@ internal fun PlayerScreenRuntime.tryFallbackToNextSourceAfterError(message: Stri
         }
         // The last source that failed may have been saved for reuse.
         removeFailedStreamFromCache()
+        // Fork (PlayerSourceFailover.kt): no further source here, so the fork's switch and then
+        // the source list come before the error, as in showErrorUnlessSourceFallback.
+        if (message != null && tryAutoSourceFailoverAfterFallback(message)) return@launch
+        if (message != null && offerOtherSources(stalled = false)) return@launch
         errorMessage = message
         controlsVisible = !playerControlsLocked
     }
