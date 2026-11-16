@@ -72,26 +72,48 @@ internal object AiAssistantActionRunner {
         if (alreadyWatched) return AiActionOutcome(AiAssistantActionStatus.AlreadyDone)
 
         // Mesmo caminho do "Marcar como assistido" do cartaz (WatchingActions.togglePosterWatched),
-        // só a parte que marca.
+        // só a parte que marca, e só o que falta: remarcar episódio visto troca a data dele e manda
+        // de novo para o Trakt (série vista pela metade, ou o mesmo pedido aprovado duas vezes).
         val released = meta.releasedMainSeasonEpisodes(CurrentDateProvider.todayIsoDate())
         if (released.isEmpty()) return failure(getString(Res.string.ai_assistant_action_error_no_episodes))
-        WatchedRepository.markWatched(listOf(meta.toSeriesWatchedItem()) + released.map(meta::toEpisodeWatchedItem))
-        WatchedRepository.updateFullyWatchedSeries(id = meta.id, type = meta.type, isFullyWatched = true)
-        WatchProgressRepository.clearProgress(
-            videoIds = released.map(meta::episodePlaybackId),
-            parentMetaId = meta.id,
+        val missing = released.filterNot { episode ->
+            WatchedRepository.isWatched(id = meta.id, type = meta.type, season = episode.season, episode = episode.episode) ||
+                WatchedRepository.isWatched(id = preview.id, type = preview.type, season = episode.season, episode = episode.episode)
+        }
+        val seriesMarked = WatchedRepository.isWatched(id = meta.id, type = meta.type) ||
+            WatchedRepository.isWatched(id = preview.id, type = preview.type)
+        if (missing.isEmpty() && seriesMarked) return AiActionOutcome(AiAssistantActionStatus.AlreadyDone)
+        WatchedRepository.markWatched(
+            buildList {
+                if (!seriesMarked) add(meta.toSeriesWatchedItem())
+                addAll(missing.map(meta::toEpisodeWatchedItem))
+            },
         )
-        return AiActionOutcome(AiAssistantActionStatus.Done, episodeCount = released.size)
+        WatchedRepository.updateFullyWatchedSeries(id = meta.id, type = meta.type, isFullyWatched = true)
+        if (missing.isNotEmpty()) {
+            WatchProgressRepository.clearProgress(
+                videoIds = missing.map(meta::episodePlaybackId),
+                parentMetaId = meta.id,
+            )
+        }
+        return AiActionOutcome(AiAssistantActionStatus.Done, episodeCount = missing.size.takeIf { it > 0 })
     }
 
     private suspend fun addToLibrary(preview: MetaPreview): AiActionOutcome {
         val savedAt = LibraryClock.nowEpochMs()
         val item = fetchMeta(preview)?.toLibraryItem(savedAt) ?: preview.toLibraryItem(savedAt)
+        // toggleSaved alterna pela situação que o provedor tem agora (getMembershipSnapshot), não pelo
+        // cache do isSaved: decidir pela mesma leitura garante que ele só pode adicionar, nunca tirar.
         val alreadySaved = LibraryRepository.isSaved(item.id, item.type) ||
-            LibraryRepository.isSaved(preview.id, preview.type)
+            LibraryRepository.isSaved(preview.id, preview.type) ||
+            LibraryRepository.getMembershipSnapshot(item).values.any { it }
         if (alreadySaved) return AiActionOutcome(AiAssistantActionStatus.AlreadyDone)
         // toggleSaved, e não save(): com o Trakt como fonte da biblioteca, só ele manda para lá.
         val result = LibraryRepository.toggleSaved(item)
+        if (result.requiresRemovalConfirmation) {
+            // Pediria confirmação de remoção: nada foi feito.
+            return AiActionOutcome(AiAssistantActionStatus.AlreadyDone)
+        }
         showTrackingMembershipRewriteFeedback(result)
         return AiActionOutcome(AiAssistantActionStatus.Done)
     }
