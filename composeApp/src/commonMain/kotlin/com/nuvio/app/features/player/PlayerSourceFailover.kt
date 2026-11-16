@@ -121,6 +121,12 @@ internal fun PlayerScreenRuntime.resetSourceFailoverForEpisode() {
     sourceFailover.cancelPending()
     sourceFailover.resumeOverride = null
     sourceFailover.audioLanguage = null
+    // Nor of the upstream fallback (PlayerScreenRuntimeSourceFallback.kt), which never clears its
+    // own: one still running would replace the new episode's source, and its tries (and count) were
+    // for the previous episode.
+    sourceFallbackJob?.cancel()
+    sourceFallbackTriedKeys.clear()
+    sourceFallbackAttempts = 0
 }
 
 /** A source starts: its declared size, for [onShortClipPlaying]. */
