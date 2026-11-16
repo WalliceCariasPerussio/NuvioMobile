@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -559,6 +560,9 @@ private fun AiAssistantTurnItem(
                     Spacer(modifier = Modifier.height(NuvioTokens.Space.s10))
                     AiAssistantActionsCard(
                         turn = turn,
+                        watchedKeys = watchedKeys,
+                        fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                        onPosterClick = onPosterClick,
                         modifier = Modifier.padding(horizontal = horizontalPadding),
                     )
                 }
@@ -602,15 +606,22 @@ private fun AiAssistantTurnItem(
     }
 }
 
-/** Lista o que o modelo propôs fazer; nada acontece antes do clique em Aprovar. */
+/**
+ * Mostra o que o modelo propôs fazer, com o cartaz de cada título como no catálogo (só o nome não
+ * basta para ter certeza de que é o título certo). Nada acontece antes do clique em Aprovar.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AiAssistantActionsCard(
     turn: AiAssistantTurn,
+    watchedKeys: Set<String>,
+    fullyWatchedSeriesKeys: Set<String>,
+    onPosterClick: ((MetaPreview) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
     val pending = turn.hasPendingActions
-    NuvioSurfaceCard(modifier = modifier.widthIn(max = 640.dp)) {
+    NuvioSurfaceCard(modifier = modifier) {
         Text(
             text = stringResource(
                 if (pending) Res.string.ai_assistant_actions_review else Res.string.ai_assistant_actions_title,
@@ -618,14 +629,29 @@ private fun AiAssistantActionsCard(
             style = MaterialTheme.typography.titleSmall,
             color = tokens.colors.textPrimary,
         )
-        Spacer(modifier = Modifier.height(NuvioTokens.Space.s8))
-        turn.actions.forEach { action ->
-            AiAssistantActionRow(action = action)
-            Spacer(modifier = Modifier.height(NuvioTokens.Space.s8))
+        Spacer(modifier = Modifier.height(NuvioTokens.Space.s12))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s16),
+            verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s16),
+        ) {
+            turn.actions.forEach { action ->
+                AiAssistantActionTile(
+                    action = action,
+                    isWatched = action.target?.let { target ->
+                        WatchingState.isPosterWatched(
+                            watchedKeys = watchedKeys,
+                            item = target,
+                            fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                        )
+                    } == true,
+                    onPosterClick = onPosterClick,
+                )
+            }
         }
         if (pending) {
-            Spacer(modifier = Modifier.height(NuvioTokens.Space.s4))
+            Spacer(modifier = Modifier.height(NuvioTokens.Space.s16))
             Row(
+                modifier = Modifier.widthIn(max = 520.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
             ) {
@@ -642,19 +668,54 @@ private fun AiAssistantActionsCard(
     }
 }
 
+/** Cartaz do catálogo (nome, ano, marca de visto; clicar abre os detalhes) com a ação e a situação embaixo. */
 @Composable
-private fun AiAssistantActionRow(action: AiAssistantAction) {
+private fun AiAssistantActionTile(
+    action: AiAssistantAction,
+    isWatched: Boolean,
+    onPosterClick: ((MetaPreview) -> Unit)?,
+) {
     val tokens = MaterialTheme.nuvio
     val target = action.target
-    val title = if (target == null) {
-        action.requestedTitle
-    } else {
-        buildString {
-            append(target.name)
-            target.releaseInfo?.takeIf(String::isNotBlank)?.let { append(" (").append(it).append(')') }
-            if (action.kind == AiAssistantActionKind.MarkWatched && target.type.isSeriesLikeWatchingContentType()) {
-                append(" · ").append(stringResource(Res.string.ai_assistant_action_whole_series))
-            }
+    // Largura do cartaz: o texto de baixo quebra linha nela em vez de alargar a coluna.
+    Column(modifier = Modifier.width(IntrinsicSize.Min)) {
+        if (target != null) {
+            HomePosterCard(
+                item = target,
+                isWatched = isWatched,
+                onClick = onPosterClick?.let { click -> { click(target) } },
+            )
+        } else {
+            Text(
+                text = action.requestedTitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = tokens.colors.textPrimary,
+                modifier = Modifier
+                    .width(160.dp)
+                    .background(tokens.colors.surfaceCard, RoundedCornerShape(NuvioTokens.Radius.lg))
+                    .padding(NuvioTokens.Space.s12),
+            )
+        }
+        Spacer(modifier = Modifier.height(NuvioTokens.Space.s8))
+        AiAssistantActionLabel(action = action)
+    }
+}
+
+@Composable
+private fun AiAssistantActionLabel(action: AiAssistantAction) {
+    val tokens = MaterialTheme.nuvio
+    val target = action.target
+    val label = buildString {
+        append(
+            stringResource(
+                when (action.kind) {
+                    AiAssistantActionKind.MarkWatched -> Res.string.ai_assistant_action_mark_watched
+                    AiAssistantActionKind.AddToLibrary -> Res.string.ai_assistant_action_add_library
+                },
+            ),
+        )
+        if (action.kind == AiAssistantActionKind.MarkWatched && target?.type?.isSeriesLikeWatchingContentType() == true) {
+            append(" · ").append(stringResource(Res.string.ai_assistant_action_whole_series))
         }
     }
     val statusText = when (action.status) {
@@ -673,7 +734,7 @@ private fun AiAssistantActionRow(action: AiAssistantAction) {
         AiAssistantActionStatus.Failed, AiAssistantActionStatus.NotFound -> tokens.colors.danger
         else -> tokens.colors.textMuted
     }
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(verticalAlignment = Alignment.Top) {
         Icon(
             imageVector = when (action.kind) {
                 AiAssistantActionKind.MarkWatched -> Icons.Rounded.CheckCircle
@@ -681,36 +742,22 @@ private fun AiAssistantActionRow(action: AiAssistantAction) {
             },
             contentDescription = null,
             tint = tokens.colors.accent,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.padding(top = 2.dp).size(16.dp),
         )
-        Spacer(modifier = Modifier.width(NuvioTokens.Space.s10))
-        Column(modifier = Modifier.weight(1f)) {
+        Spacer(modifier = Modifier.width(NuvioTokens.Space.s6))
+        Column {
             Text(
-                text = stringResource(
-                    when (action.kind) {
-                        AiAssistantActionKind.MarkWatched -> Res.string.ai_assistant_action_mark_watched
-                        AiAssistantActionKind.AddToLibrary -> Res.string.ai_assistant_action_add_library
-                    },
-                ),
+                text = label,
                 style = MaterialTheme.typography.labelMedium,
                 color = tokens.colors.textMuted,
             )
             Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = tokens.colors.textPrimary,
-                maxLines = 2,
+                text = statusText,
+                style = MaterialTheme.typography.labelMedium,
+                color = statusColor,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Spacer(modifier = Modifier.width(NuvioTokens.Space.s8))
-        Text(
-            text = statusText,
-            style = MaterialTheme.typography.labelMedium,
-            color = statusColor,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 220.dp),
-        )
     }
 }
