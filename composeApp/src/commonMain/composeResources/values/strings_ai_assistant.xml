@@ -29,4 +29,20 @@
     <string name="ai_assistant_suggestion_2">A light movie for tonight</string>
     <string name="ai_assistant_suggestion_3">Short thriller series</string>
     <string name="ai_assistant_suggestion_4">Something like what I watched last</string>
+    <string name="ai_assistant_actions_review">Review and approve</string>
+    <string name="ai_assistant_actions_title">Actions</string>
+    <string name="ai_assistant_approve">Approve</string>
+    <string name="ai_assistant_action_mark_watched">Mark as watched</string>
+    <string name="ai_assistant_action_add_library">Add to library</string>
+    <string name="ai_assistant_action_whole_series">whole series</string>
+    <string name="ai_assistant_action_status_pending">Waiting</string>
+    <string name="ai_assistant_action_status_running">Working…</string>
+    <string name="ai_assistant_action_status_done">Done</string>
+    <string name="ai_assistant_action_status_done_episodes">Done · %1$d episodes</string>
+    <string name="ai_assistant_action_status_already">Already done</string>
+    <string name="ai_assistant_action_status_failed">Failed: %1$s</string>
+    <string name="ai_assistant_action_status_cancelled">Cancelled</string>
+    <string name="ai_assistant_action_status_not_found">Not found on TMDB</string>
+    <string name="ai_assistant_action_error_no_meta">could not load the episodes</string>
+    <string name="ai_assistant_action_error_no_episodes">no episodes released yet</string>
 </resources>

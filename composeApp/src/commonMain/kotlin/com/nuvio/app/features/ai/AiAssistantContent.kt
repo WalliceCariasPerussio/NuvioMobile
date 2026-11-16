@@ -23,7 +23,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -63,9 +65,24 @@ import com.nuvio.app.features.home.components.HomePosterCard
 import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.home.stableKey
 import com.nuvio.app.features.watching.application.WatchingState
+import com.nuvio.app.features.watching.domain.isSeriesLikeWatchingContentType
 import kotlinx.coroutines.delay
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_retry
+import nuvio.composeapp.generated.resources.ai_assistant_action_add_library
+import nuvio.composeapp.generated.resources.ai_assistant_action_mark_watched
+import nuvio.composeapp.generated.resources.ai_assistant_action_status_already
+import nuvio.composeapp.generated.resources.ai_assistant_action_status_cancelled
+import nuvio.composeapp.generated.resources.ai_assistant_action_status_done
+import nuvio.composeapp.generated.resources.ai_assistant_action_status_done_episodes
+import nuvio.composeapp.generated.resources.ai_assistant_action_status_failed
+import nuvio.composeapp.generated.resources.ai_assistant_action_status_not_found
+import nuvio.composeapp.generated.resources.ai_assistant_action_status_pending
+import nuvio.composeapp.generated.resources.ai_assistant_action_status_running
+import nuvio.composeapp.generated.resources.ai_assistant_action_whole_series
+import nuvio.composeapp.generated.resources.ai_assistant_actions_review
+import nuvio.composeapp.generated.resources.ai_assistant_actions_title
+import nuvio.composeapp.generated.resources.ai_assistant_approve
 import nuvio.composeapp.generated.resources.ai_assistant_back_to_search
 import nuvio.composeapp.generated.resources.ai_assistant_cancel
 import nuvio.composeapp.generated.resources.ai_assistant_change
@@ -538,6 +555,13 @@ private fun AiAssistantTurnItem(
                         modifier = Modifier.padding(horizontal = horizontalPadding),
                     )
                 }
+                if (turn.actions.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(NuvioTokens.Space.s10))
+                    AiAssistantActionsCard(
+                        turn = turn,
+                        modifier = Modifier.padding(horizontal = horizontalPadding),
+                    )
+                }
                 if (turn.items.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(NuvioTokens.Space.s8))
                     NuvioShelfSection(
@@ -575,5 +599,118 @@ private fun AiAssistantTurnItem(
                 }
             }
         }
+    }
+}
+
+/** Lista o que o modelo propôs fazer; nada acontece antes do clique em Aprovar. */
+@Composable
+private fun AiAssistantActionsCard(
+    turn: AiAssistantTurn,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = MaterialTheme.nuvio
+    val pending = turn.hasPendingActions
+    NuvioSurfaceCard(modifier = modifier.widthIn(max = 640.dp)) {
+        Text(
+            text = stringResource(
+                if (pending) Res.string.ai_assistant_actions_review else Res.string.ai_assistant_actions_title,
+            ),
+            style = MaterialTheme.typography.titleSmall,
+            color = tokens.colors.textPrimary,
+        )
+        Spacer(modifier = Modifier.height(NuvioTokens.Space.s8))
+        turn.actions.forEach { action ->
+            AiAssistantActionRow(action = action)
+            Spacer(modifier = Modifier.height(NuvioTokens.Space.s8))
+        }
+        if (pending) {
+            Spacer(modifier = Modifier.height(NuvioTokens.Space.s4))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+            ) {
+                TextButton(onClick = { AiAssistantRepository.cancelActions(turn.id) }) {
+                    Text(stringResource(Res.string.ai_assistant_cancel))
+                }
+                NuvioPrimaryButton(
+                    text = stringResource(Res.string.ai_assistant_approve),
+                    modifier = Modifier.weight(1f),
+                    onClick = { AiAssistantRepository.approveActions(turn.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiAssistantActionRow(action: AiAssistantAction) {
+    val tokens = MaterialTheme.nuvio
+    val target = action.target
+    val title = if (target == null) {
+        action.requestedTitle
+    } else {
+        buildString {
+            append(target.name)
+            target.releaseInfo?.takeIf(String::isNotBlank)?.let { append(" (").append(it).append(')') }
+            if (action.kind == AiAssistantActionKind.MarkWatched && target.type.isSeriesLikeWatchingContentType()) {
+                append(" · ").append(stringResource(Res.string.ai_assistant_action_whole_series))
+            }
+        }
+    }
+    val statusText = when (action.status) {
+        AiAssistantActionStatus.Pending -> stringResource(Res.string.ai_assistant_action_status_pending)
+        AiAssistantActionStatus.Running -> stringResource(Res.string.ai_assistant_action_status_running)
+        AiAssistantActionStatus.Done -> action.episodeCount
+            ?.let { stringResource(Res.string.ai_assistant_action_status_done_episodes, it) }
+            ?: stringResource(Res.string.ai_assistant_action_status_done)
+        AiAssistantActionStatus.AlreadyDone -> stringResource(Res.string.ai_assistant_action_status_already)
+        AiAssistantActionStatus.Failed -> stringResource(Res.string.ai_assistant_action_status_failed, action.error.orEmpty())
+        AiAssistantActionStatus.Cancelled -> stringResource(Res.string.ai_assistant_action_status_cancelled)
+        AiAssistantActionStatus.NotFound -> stringResource(Res.string.ai_assistant_action_status_not_found)
+    }
+    val statusColor = when (action.status) {
+        AiAssistantActionStatus.Done, AiAssistantActionStatus.AlreadyDone -> tokens.colors.accent
+        AiAssistantActionStatus.Failed, AiAssistantActionStatus.NotFound -> tokens.colors.danger
+        else -> tokens.colors.textMuted
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = when (action.kind) {
+                AiAssistantActionKind.MarkWatched -> Icons.Rounded.CheckCircle
+                AiAssistantActionKind.AddToLibrary -> Icons.Rounded.Add
+            },
+            contentDescription = null,
+            tint = tokens.colors.accent,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(modifier = Modifier.width(NuvioTokens.Space.s10))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(
+                    when (action.kind) {
+                        AiAssistantActionKind.MarkWatched -> Res.string.ai_assistant_action_mark_watched
+                        AiAssistantActionKind.AddToLibrary -> Res.string.ai_assistant_action_add_library
+                    },
+                ),
+                style = MaterialTheme.typography.labelMedium,
+                color = tokens.colors.textMuted,
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = tokens.colors.textPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(modifier = Modifier.width(NuvioTokens.Space.s8))
+        Text(
+            text = statusText,
+            style = MaterialTheme.typography.labelMedium,
+            color = statusColor,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 220.dp),
+        )
     }
 }

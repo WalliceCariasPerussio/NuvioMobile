@@ -78,6 +78,105 @@ class AiRecommendationPromptTest {
     }
 
     @Test
+    fun `watched context uses the series name, not episode titles`() {
+        // Marcar a série inteira grava cada episódio com o nome dele, mais um item da série.
+        val episodes = (1..148).map { number ->
+            WatchedItem(
+                id = "tt2098220",
+                type = "series",
+                name = "Episódio $number",
+                season = 1,
+                episode = number,
+                markedAtEpochMs = 1_000L + number,
+            )
+        }
+        val watched = episodes + listOf(
+            WatchedItem(id = "tt2098220", type = "series", name = "Hunter x Hunter", releaseInfo = "2011", markedAtEpochMs = 1_000),
+            WatchedItem(id = "tt1", type = "movie", name = "Alien", markedAtEpochMs = 10),
+            // Só episódios, sem o item da série: vale o nome que se repete.
+            WatchedItem(id = "tt9", type = "series", name = "Dark", season = 1, episode = 1, markedAtEpochMs = 20),
+            WatchedItem(id = "tt9", type = "series", name = "Dark", season = 1, episode = 2, markedAtEpochMs = 21),
+            WatchedItem(id = "tt9", type = "series", name = "Secrets", season = 1, episode = 3, markedAtEpochMs = 22),
+        )
+
+        assertEquals(
+            listOf("Hunter x Hunter (2011) [série]", "Dark [série]", "Alien [filme]"),
+            AiRecommendationPrompt.watchedContextLines(watched),
+        )
+    }
+
+    @Test
+    fun `watched context keeps one line when the same title has two ids`() {
+        val watched = listOf(
+            WatchedItem(id = "tmdb:1429", type = "series", name = "Attack on Titan", markedAtEpochMs = 200),
+            WatchedItem(id = "tt2560140", type = "series", name = "Attack on Titan", markedAtEpochMs = 100),
+        )
+
+        assertEquals(listOf("Attack on Titan [série]"), AiRecommendationPrompt.watchedContextLines(watched))
+    }
+
+    @Test
+    fun `parses actions and accepts a reply with only actions`() {
+        val reply = AiRecommendationPrompt.parseReply(
+            """
+            {"reply": "• Marcar Death Note como assistido\nClique em Aprovar.", "titles": [],
+             "actions": [
+               {"action": "mark_watched", "title": "Death Note", "year": 2006, "type": "series"},
+               {"action": "add-to-library", "title": "Perfect Blue", "year": 1997, "type": "movie"},
+               {"action": "delete_everything", "title": "Dark", "year": 2017, "type": "series"},
+               {"action": "mark_watched", "year": 2020}
+             ]}
+            """.trimIndent(),
+        )!!
+
+        assertTrue(reply.titles.isEmpty())
+        assertEquals(
+            listOf(
+                AiSuggestedAction(AiAssistantActionKind.MarkWatched, AiSuggestedTitle("Death Note", 2006, AiTitleType.Series)),
+                AiSuggestedAction(AiAssistantActionKind.AddToLibrary, AiSuggestedTitle("Perfect Blue", 1997, AiTitleType.Movie)),
+            ),
+            reply.actions,
+        )
+    }
+
+    @Test
+    fun `reply without actions field still parses`() {
+        // OpenAI e Gemini não recebem o schema e podem omitir "actions".
+        val reply = AiRecommendationPrompt.parseReply("""{"reply":"Um filme.","titles":[{"title":"Alien","year":1979,"type":"movie"}]}""")!!
+
+        assertTrue(reply.actions.isEmpty())
+        assertEquals(1, reply.titles.size)
+    }
+
+    @Test
+    fun `history carries actions and their statuses`() {
+        val reply = AiRecommendationReply(
+            reply = "Confira.",
+            titles = emptyList(),
+            actions = listOf(
+                AiSuggestedAction(AiAssistantActionKind.MarkWatched, AiSuggestedTitle("Death Note", 2006, AiTitleType.Series)),
+                AiSuggestedAction(AiAssistantActionKind.AddToLibrary, AiSuggestedTitle("Alien", 1979, AiTitleType.Movie)),
+            ),
+        )
+        val encoded = AiRecommendationPrompt.encodeForHistory(reply)
+        assertEquals(reply, AiRecommendationPrompt.parseReply(encoded))
+
+        val withStatus = AiRecommendationPrompt.withActionStatuses(encoded, listOf("feita", "cancelada pela pessoa"))
+        assertTrue("\"status\":\"feita\"" in withStatus)
+        assertTrue("\"status\":\"cancelada pela pessoa\"" in withStatus)
+        assertEquals(reply, AiRecommendationPrompt.parseReply(withStatus))
+        assertEquals(encoded, AiRecommendationPrompt.withActionStatuses(encoded, emptyList()))
+    }
+
+    @Test
+    fun `schema requires actions with closed objects`() {
+        val schema = AiRecommendationPrompt.responseSchema.toString()
+        assertTrue("\"required\":[\"reply\",\"titles\",\"actions\"]" in schema)
+        assertTrue("\"enum\":[\"mark_watched\",\"add_to_library\"]" in schema)
+        assertTrue("\"required\":[\"action\",\"title\",\"year\",\"type\"]" in schema)
+    }
+
+    @Test
     fun `user turn carries the context only when there is history`() {
         assertEquals("animes de terror", AiRecommendationPrompt.buildUserTurn(" animes de terror ", emptyList()))
 

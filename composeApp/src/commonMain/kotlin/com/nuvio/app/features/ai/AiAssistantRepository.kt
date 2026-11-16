@@ -18,6 +18,35 @@ enum class AiAssistantTurnStatus {
     Failed,
 }
 
+enum class AiAssistantActionKind {
+    MarkWatched,
+    AddToLibrary,
+}
+
+enum class AiAssistantActionStatus {
+    /** Esperando a pessoa clicar em Aprovar ou Cancelar. */
+    Pending,
+    Running,
+    Done,
+    AlreadyDone,
+    Failed,
+    Cancelled,
+
+    /** O título pedido não foi achado no TMDB: não há o que fazer. */
+    NotFound,
+}
+
+data class AiAssistantAction(
+    val kind: AiAssistantActionKind,
+    /** Como o modelo escreveu o título, para mostrar quando o TMDB não acha. */
+    val requestedTitle: String,
+    val target: MetaPreview?,
+    val status: AiAssistantActionStatus,
+    /** Episódios marcados, quando a ação marcou uma série. */
+    val episodeCount: Int? = null,
+    val error: String? = null,
+)
+
 data class AiAssistantTurn(
     val id: Long,
     val prompt: String,
@@ -26,9 +55,15 @@ data class AiAssistantTurn(
     val items: List<MetaPreview> = emptyList(),
     val suggestedCount: Int = 0,
     val error: String? = null,
+    val actions: List<AiAssistantAction> = emptyList(),
     /** Resposta do modelo em JSON compacto, mandada de volta como histórico. */
     internal val historyText: String? = null,
-)
+    /** Título como o modelo escreveu (normalizado, com o tipo), alinhado com [items]. */
+    internal val itemKeys: List<String> = emptyList(),
+) {
+    val hasPendingActions: Boolean
+        get() = actions.any { it.status == AiAssistantActionStatus.Pending }
+}
 
 data class AiAssistantUiState(
     val turns: List<AiAssistantTurn> = emptyList(),
@@ -55,15 +90,14 @@ object AiAssistantRepository {
         val settings = AiAssistantSettingsRepository.snapshot()
         if (!settings.isConfigured) return false
 
-        val history = _uiState.value.turns
-            .filter { it.status == AiAssistantTurnStatus.Done && it.historyText != null }
-            .takeLast(MAX_HISTORY_TURNS)
+        val previousTurns = _uiState.value.turns.filter { it.status == AiAssistantTurnStatus.Done }
+        val history = previousTurns.filter { it.historyText != null }.takeLast(MAX_HISTORY_TURNS)
         val turnId = nextId++
         _uiState.update { state ->
             state.copy(turns = state.turns + AiAssistantTurn(turnId, prompt, AiAssistantTurnStatus.Loading))
         }
         activeJob = scope.launch {
-            val finished = runTurn(settings, history, prompt, turnId)
+            val finished = runTurn(settings, history, previousTurns, prompt, turnId)
             _uiState.update { state ->
                 state.copy(turns = state.turns.map { if (it.id == turnId) finished else it })
             }
@@ -85,9 +119,71 @@ object AiAssistantRepository {
         _uiState.value = AiAssistantUiState()
     }
 
+    /** Faz, uma de cada vez, as ações que estavam esperando aprovação nesta mensagem. */
+    fun approveActions(turnId: Long) {
+        var started = false
+        updateTurn(turnId) { turn ->
+            if (!turn.hasPendingActions) return@updateTurn turn
+            started = true
+            turn.copy(
+                actions = turn.actions.map { action ->
+                    if (action.status == AiAssistantActionStatus.Pending) {
+                        action.copy(status = AiAssistantActionStatus.Running)
+                    } else {
+                        action
+                    }
+                },
+            )
+        }
+        if (!started) return
+        scope.launch {
+            val actions = _uiState.value.turns.firstOrNull { it.id == turnId }?.actions.orEmpty()
+            actions.forEachIndexed { index, action ->
+                if (action.status != AiAssistantActionStatus.Running) return@forEachIndexed
+                val outcome = AiAssistantActionRunner.run(action)
+                updateTurn(turnId) { turn ->
+                    turn.copy(
+                        actions = turn.actions.mapIndexed { i, current ->
+                            if (i == index) {
+                                current.copy(
+                                    status = outcome.status,
+                                    episodeCount = outcome.episodeCount,
+                                    error = outcome.error,
+                                )
+                            } else {
+                                current
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelActions(turnId: Long) {
+        updateTurn(turnId) { turn ->
+            turn.copy(
+                actions = turn.actions.map { action ->
+                    if (action.status == AiAssistantActionStatus.Pending) {
+                        action.copy(status = AiAssistantActionStatus.Cancelled)
+                    } else {
+                        action
+                    }
+                },
+            )
+        }
+    }
+
+    private fun updateTurn(turnId: Long, transform: (AiAssistantTurn) -> AiAssistantTurn) {
+        _uiState.update { state ->
+            state.copy(turns = state.turns.map { if (it.id == turnId) transform(it) else it })
+        }
+    }
+
     private suspend fun runTurn(
         settings: AiAssistantSettings,
         history: List<AiAssistantTurn>,
+        previousTurns: List<AiAssistantTurn>,
         prompt: String,
         turnId: Long,
     ): AiAssistantTurn {
@@ -96,7 +192,7 @@ object AiAssistantRepository {
         val messages = buildList {
             history.forEach { turn ->
                 add(AiChatMessage(AiChatRole.User, turn.prompt))
-                add(AiChatMessage(AiChatRole.Assistant, turn.historyText.orEmpty()))
+                add(AiChatMessage(AiChatRole.Assistant, historyMessage(turn)))
             }
             add(AiChatMessage(AiChatRole.User, AiRecommendationPrompt.buildUserTurn(prompt, watched)))
         }
@@ -116,16 +212,64 @@ object AiAssistantRepository {
         }
         val reply = AiRecommendationPrompt.parseReply(text)
             ?: return failed.copy(error = "Resposta em formato inesperado: ${text.take(200)}")
-        val items = AiTitleResolver.resolve(reply.titles)
+        val resolved = AiTitleResolver.resolve(reply.titles)
+        val actions = reply.actions.map { action ->
+            val target = findShownTitle(action.target, previousTurns)
+                ?: AiTitleResolver.resolveTitle(action.target)
+            AiAssistantAction(
+                kind = action.kind,
+                requestedTitle = action.target.title,
+                target = target,
+                status = if (target != null) AiAssistantActionStatus.Pending else AiAssistantActionStatus.NotFound,
+            )
+        }
         return AiAssistantTurn(
             id = turnId,
             prompt = prompt,
             status = AiAssistantTurnStatus.Done,
             reply = reply.reply,
-            items = items,
+            items = resolved.map { it.preview },
             // Só conta o que foi buscado: acima do limite os títulos nem vão ao TMDB.
             suggestedCount = minOf(reply.titles.size, AiRecommendationPrompt.MAX_TITLES),
-            historyText = AiRecommendationPrompt.encodeForHistory(reply),
+            actions = actions,
+            // O histórico leva só o que apareceu na tela, para "o 1, 2 e 5" bater com os cartazes.
+            historyText = AiRecommendationPrompt.encodeForHistory(reply.copy(titles = resolved.map { it.suggested })),
+            itemKeys = resolved.map { titleKey(it.suggested.title, it.suggested.type) },
         )
     }
+
+    private fun historyMessage(turn: AiAssistantTurn): String =
+        AiRecommendationPrompt.withActionStatuses(
+            historyText = turn.historyText.orEmpty(),
+            statuses = turn.actions.map(::statusForModel),
+        )
+
+    private fun statusForModel(action: AiAssistantAction): String = when (action.status) {
+        AiAssistantActionStatus.Pending -> "aguardando aprovação"
+        AiAssistantActionStatus.Running -> "em andamento"
+        AiAssistantActionStatus.Done -> "feita"
+        AiAssistantActionStatus.AlreadyDone -> "já estava feita"
+        AiAssistantActionStatus.Failed -> "falhou: ${action.error.orEmpty()}"
+        AiAssistantActionStatus.Cancelled -> "cancelada pela pessoa"
+        AiAssistantActionStatus.NotFound -> "título não achado no TMDB, nada foi feito"
+    }
+
+    /**
+     * A ação costuma apontar para um cartaz que já apareceu ("marca o 1 e o 2"). Usar o mesmo
+     * cartaz evita que uma busca nova no TMDB caia em outro título com o mesmo nome.
+     */
+    private fun findShownTitle(target: AiSuggestedTitle, turns: List<AiAssistantTurn>): MetaPreview? {
+        val key = titleKey(target.title, target.type)
+        val wantedType = target.type.wireName
+        turns.asReversed().forEach { turn ->
+            val index = turn.itemKeys.indexOf(key)
+            if (index >= 0) turn.items.getOrNull(index)?.let { return it }
+            turn.items.firstOrNull { item ->
+                item.type == wantedType && item.name.normalizedTitle() == target.title.normalizedTitle()
+            }?.let { return it }
+        }
+        return null
+    }
+
+    private fun titleKey(title: String, type: AiTitleType): String = "${title.normalizedTitle()}|${type.wireName}"
 }

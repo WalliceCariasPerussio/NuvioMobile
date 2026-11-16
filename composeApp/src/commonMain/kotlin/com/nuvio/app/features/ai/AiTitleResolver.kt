@@ -19,21 +19,33 @@ import kotlinx.serialization.json.Json
  * Transforma os títulos sugeridos pelo modelo em cartazes do TMDB. Título que o TMDB não acha
  * (inventado ou com nome errado) fica de fora.
  */
+internal data class AiResolvedTitle(
+    val suggested: AiSuggestedTitle,
+    val preview: MetaPreview,
+)
+
 internal object AiTitleResolver {
     private val log = Logger.withTag("AiTitleResolver")
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun resolve(titles: List<AiSuggestedTitle>): List<MetaPreview> = coroutineScope {
+    /** Cada título achado com o cartaz correspondente, na ordem do modelo e sem repetidos. */
+    suspend fun resolve(titles: List<AiSuggestedTitle>): List<AiResolvedTitle> = coroutineScope {
         val apiKey = TmdbSettingsRepository.effectiveApiKey().takeIf(String::isNotBlank)
             ?: return@coroutineScope emptyList()
         val language = TmdbSettingsRepository.snapshot().language.ifBlank { "en" }
         titles
             .take(AiRecommendationPrompt.MAX_TITLES)
-            .map { title -> async { resolveOne(title, apiKey, language) } }
+            .map { title -> async { resolveOne(title, apiKey, language)?.let { AiResolvedTitle(title, it) } } }
             .awaitAll()
             .filterNotNull()
             // Filme e série do TMDB podem ter o mesmo número: o tipo faz parte da identidade.
-            .distinctBy { it.type to it.id }
+            .distinctBy { it.preview.type to it.preview.id }
+    }
+
+    suspend fun resolveTitle(title: AiSuggestedTitle): MetaPreview? {
+        val apiKey = TmdbSettingsRepository.effectiveApiKey().takeIf(String::isNotBlank) ?: return null
+        val language = TmdbSettingsRepository.snapshot().language.ifBlank { "en" }
+        return resolveOne(title, apiKey, language)
     }
 
     private suspend fun resolveOne(title: AiSuggestedTitle, apiKey: String, language: String): MetaPreview? {
@@ -147,7 +159,7 @@ internal fun <T> pickBestTmdbMatch(
     return exact.ifEmpty { top }.maxByOrNull(votes)
 }
 
-private fun String.normalizedTitle(): String =
+internal fun String.normalizedTitle(): String =
     lowercase().filter { it.isLetterOrDigit() }
 
 /**
