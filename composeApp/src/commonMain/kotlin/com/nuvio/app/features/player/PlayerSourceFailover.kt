@@ -164,8 +164,8 @@ internal fun PlayerScreenRuntime.tryAutoSourceFailover(failureMessage: String?):
         failover.resumeOverride = activeInitialPositionMs to activeInitialProgressFraction
     }
 
-    // Always the episode playing: the list may still hold another episode's sources. Its search is
-    // kept by the player (StreamSearchCache), so this is usually instant.
+    // Always the episode playing: the list may still hold another episode's sources. Its search
+    // is shared through StreamSearchSessions (kept 15 min after it ends), so this is usually instant.
     PlayerStreamsRepository.loadSources(
         type = contentType ?: parentMetaType,
         videoId = videoId,

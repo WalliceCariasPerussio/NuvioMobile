@@ -33,11 +33,23 @@ internal fun PlayerScreenRuntime.isAtNextEpisodeThreshold(): Boolean {
         !initialSeekApplied || isScrubbingTimeline || errorMessage != null ||
         isShortPlaceholderDuration(playbackSnapshot.durationMs)
     ) return false
-    // Preload (fork): fetch the next episode's sources as soon as this one plays, not only near the
-    // end, so skipping ahead finds them ready. The player retains them until it closes.
-    // Offline: preloadNextEpisodeSources() leaves the trigger unset and retries once back online.
-    if (!nextEpisodePreloadTriggered && nextEpisodeInfo != null) {
-        preloadNextEpisodeSources()
+    // Preload: trigger source fetch before the button appears
+    if (playerSettingsUiState.preloadNextEpisodeSources && !nextEpisodePreloadTriggered && nextEpisodeInfo != null && !isNetworkOffline()) {
+        val preloadLeadMs = maxOf(playerSettingsUiState.streamAutoPlayTimeoutSeconds.toLong() * 1_000L, 10_000L)
+            .coerceAtMost(30_000L)
+        val shouldPreloadByCard = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
+            positionMs = playbackSnapshot.positionMs + preloadLeadMs,
+            durationMs = playbackSnapshot.durationMs,
+            skipIntervals = skipIntervals,
+            thresholdMode = playerSettingsUiState.nextEpisodeThresholdMode,
+            thresholdPercent = playerSettingsUiState.nextEpisodeThresholdPercent,
+            thresholdMinutesBeforeEnd = playerSettingsUiState.nextEpisodeThresholdMinutesBeforeEnd,
+        )
+        val shouldPreloadByEnd = playbackSnapshot.durationMs > 0L &&
+            (playbackSnapshot.durationMs - playbackSnapshot.positionMs) <= preloadLeadMs
+        if (shouldPreloadByCard || shouldPreloadByEnd) {
+            preloadNextEpisodeSources()
+        }
     }
     return playbackSnapshot.isEnded || PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
         positionMs = playbackSnapshot.positionMs,
@@ -68,7 +80,8 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     settings: PlayerSettingsUiState,
     currentStreamBingeGroup: String?,
     onDownloadedEpisodeSelected: (DownloadItem, MetaVideo) -> Unit,
-    onEpisodeStreamSelected: (StreamItem, MetaVideo) -> Unit,
+    /** The source auto-play picked, the episode, and the sources tried before the source. */
+    onEpisodeStreamSelected: (StreamItem, MetaVideo, PlayerSourceFallbackTried) -> Unit,
     onManualSelectionRequired: (MetaVideo) -> Unit,
     onSearchingChanged: (Boolean) -> Unit,
     onSourceNameChanged: (String?) -> Unit,
@@ -322,22 +335,47 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             }
         }
 
-        val selected = selectedStream?.let { stream ->
-            when (val result = DirectDebridPlaybackResolver.resolveToPlayableStream(stream, nextVideo.season, nextVideo.episode)) {
-                is DirectDebridPlayableResult.Success -> result.stream
-                else -> {
-                    result.toastMessage()?.let { NuvioToastController.show(it) }
-                    PlayerStreamsRepository.loadEpisodeStreams(
-                        type = type,
-                        videoId = nextVideo.id,
-                        season = nextVideo.season,
-                        episode = nextVideo.episode,
-                        forceRefresh = true,
+        // A debrid result that cannot be played (expired, no longer cached, a failed resolve) moves
+        // on to the next source auto selection would pick when falling back is on, the way the
+        // stream screen does. Only the last failure is shown.
+        val resolveRun = selectedStream?.let { stream ->
+            resolveWithSourceFallback<StreamItem, DirectDebridPlayableResult>(
+                first = stream,
+                maxSources = if (settings.streamAutoPlayFallbackActive) settings.streamAutoPlayFallbackMaxSources else 0,
+                resolve = { candidate ->
+                    when (
+                        val result = DirectDebridPlaybackResolver.resolveToPlayableStream(
+                            candidate,
+                            nextVideo.season,
+                            nextVideo.episode,
+                        )
+                    ) {
+                        is DirectDebridPlayableResult.Success -> PlayerSourceResolveAttempt.Resolved(result.stream)
+                        else -> PlayerSourceResolveAttempt.Failed(result)
+                    }
+                },
+                nextCandidate = { failed, triedKeys ->
+                    nextSourceFallbackCandidate(
+                        streams = PlayerStreamsRepository.episodeStreamsState.value.groups.flatMap { it.streams },
+                        settings = settings,
+                        triedKeys = triedKeys,
+                        failedAddonId = failed.addonId,
+                        failedInfoHash = failed.p2pInfoHash,
                     )
-                    null
-                }
-            }
+                },
+            )
         }
+        resolveRun?.failure?.let { result ->
+            result.toastMessage()?.let { NuvioToastController.show(it) }
+            PlayerStreamsRepository.loadEpisodeStreams(
+                type = type,
+                videoId = nextVideo.id,
+                season = nextVideo.season,
+                episode = nextVideo.episode,
+                forceRefresh = true,
+            )
+        }
+        val selected = resolveRun?.resolved
         onSearchingChanged(false)
         if (selected != null) {
             onSourceNameChanged((selected.name?.takeIf { it.isNotBlank() } ?: selected.addonName).trim())
@@ -345,7 +383,7 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
                 onCountdownChanged(i)
                 delay(1000)
             }
-            onEpisodeStreamSelected(selected, nextVideo)
+            onEpisodeStreamSelected(selected, nextVideo, resolveRun.tried)
             onNextEpisodeCardVisibleChanged(false)
             onCountdownChanged(null)
             onSourceNameChanged(null)
@@ -366,17 +404,19 @@ internal fun PlayerScreenRuntime.preloadNextEpisodeSources() {
     if (isNetworkOffline()) return
 
     nextEpisodePreloadTriggered = true
-    PlayerStreamsRepository.preloadStreams(
-        type = type,
-        videoId = nextEp.videoId,
-        season = nextEp.season,
-        episode = nextEp.episode,
-    )
+    nextEpisodePreloadJob?.cancel()
+    nextEpisodePreloadJob = scope.launch {
+        PlayerStreamsRepository.loadEpisodeStreams(
+            type = type,
+            videoId = nextEp.videoId,
+            season = nextEp.season,
+            episode = nextEp.episode
+        )
+    }
 }
 
 internal fun PlayerScreenRuntime.cancelNextEpisodePreload() {
     nextEpisodePreloadJob?.cancel()
     nextEpisodePreloadJob = null
     nextEpisodePreloadTriggered = false
-    PlayerStreamsRepository.cancelPreload()
 }
